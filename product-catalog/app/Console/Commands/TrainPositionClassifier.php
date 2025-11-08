@@ -13,11 +13,15 @@ use Illuminate\Support\Facades\File;
 
 class TrainPositionClassifier extends Command
 {
-    protected $signature = 'ml:train-position {--test-ratio=0.2}';
+    protected $signature = 'ml:train-position {--test-ratio=0.2} {--memory=2048M} {--balance : Équilibrer les classes pour éviter le biais}';
     protected $description = 'Entraîner le modèle de classification de position des images';
 
     public function handle()
     {
+        // Augmenter la limite de mémoire
+        $memoryLimit = $this->option('memory');
+        ini_set('memory_limit', $memoryLimit);
+        
         $this->info('Entraînement du modèle de classification de position...');
         
         $trainingDir = storage_path('app/training/images/position');
@@ -29,26 +33,56 @@ class TrainPositionClassifier extends Command
             $this->info("Créez les dossiers suivants et ajoutez vos images:");
             $this->info("  - {$trainingDir}/Front");
             $this->info("  - {$trainingDir}/Back");
-            $this->info("  - {$trainingDir}/Left");
-            $this->info("  - {$trainingDir}/Right");
-            $this->info("  - {$trainingDir}/LateralLeft");
-            $this->info("  - {$trainingDir}/LateralRight");
+            $this->info("  - {$trainingDir}/Side");
             $this->info("  - {$trainingDir}/Top");
             $this->info("  - {$trainingDir}/Bottom");
             $this->info("  - {$trainingDir}/PartZoom");
             return 1;
         }
         
-        $positions = ['Front', 'Back', 'Left', 'Right', 'Lateral Left', 'Lateral Right', 'Top', 'Bottom', 'Part Zoom'];
+        $positions = ['Front', 'Back', 'Side', 'Top', 'Bottom', 'Part Zoom'];
+        
         $samples = [];
         $labels = [];
+        $imagesByPosition = [];
+        
+        $this->info('Chargement des images d\'entraînement...');
         
         $imageManager = new ImageManager(new Driver());
         
+        // Charger toutes les images par position
         foreach ($positions as $position) {
-            // Convertir "Lateral Left" en "LateralLeft" pour le nom de dossier
             $folderName = str_replace(' ', '', $position);
             $positionDir = $trainingDir . '/' . $folderName;
+            
+            // Pour Side, aussi chercher dans les anciens dossiers (Left, Right, LateralLeft, LateralRight)
+            if ($position === 'Side') {
+                $oldFolders = ['Left', 'Right', 'LateralLeft', 'LateralRight'];
+                $allImages = [];
+                
+                // Chercher dans le dossier Side
+                if (File::exists($positionDir)) {
+                    $allImages = array_merge($allImages, File::glob($positionDir . '/*.{jpg,jpeg,png,webp}', GLOB_BRACE));
+                }
+                
+                // Chercher dans les anciens dossiers
+                foreach ($oldFolders as $oldFolder) {
+                    $oldDir = $trainingDir . '/' . $oldFolder;
+                    if (File::exists($oldDir)) {
+                        $oldImages = File::glob($oldDir . '/*.{jpg,jpeg,png,webp}', GLOB_BRACE);
+                        $allImages = array_merge($allImages, $oldImages);
+                    }
+                }
+                
+                if (empty($allImages)) {
+                    $this->warn("Aucune image trouvée pour Side (dossiers: Side, Left, Right, LateralLeft, LateralRight)");
+                    continue;
+                }
+                
+                $this->info("Position '{$position}': " . count($allImages) . " images (incluant les anciens dossiers)");
+                $imagesByPosition[$position] = $allImages;
+                continue;
+            }
             
             if (!File::exists($positionDir)) {
                 $this->warn("Dossier manquant: {$positionDir}");
@@ -62,20 +96,40 @@ class TrainPositionClassifier extends Command
                 continue;
             }
             
-            $this->info("Traitement de {$position}: " . count($images) . " images");
+            $this->info("Position '{$position}': " . count($images) . " images");
+            $imagesByPosition[$position] = $images;
+        }
+        
+        // Équilibrer les classes si demandé
+        if ($this->option('balance')) {
+            $this->info("\n🔄 Équilibrage des classes...");
+            $imagesByPosition = $this->balanceClasses($imagesByPosition);
             
+            foreach ($imagesByPosition as $position => $images) {
+                $this->info("Après équilibrage - '{$position}': " . count($images) . " images");
+            }
+        }
+        
+        // Extraire les features
+        $this->info("\n📊 Extraction des features...");
+        $progressBar = $this->output->createProgressBar(array_sum(array_map('count', $imagesByPosition)));
+        $progressBar->start();
+        
+        foreach ($imagesByPosition as $position => $images) {
             foreach ($images as $imagePath) {
                 try {
                     $image = $imageManager->read(file_get_contents($imagePath));
                     $features = $this->extractImageFeatures($image);
-                    
                     $samples[] = $features;
                     $labels[] = $position;
+                    $progressBar->advance();
                 } catch (\Exception $e) {
-                    $this->warn("Erreur lors du traitement de {$imagePath}: " . $e->getMessage());
+                    $this->error("\nErreur lors du chargement de {$imagePath}: " . $e->getMessage());
                 }
             }
         }
+        $progressBar->finish();
+        $this->newLine();
         
         if (empty($samples)) {
             $this->error('Aucune image valide trouvée pour l\'entraînement');
@@ -118,18 +172,20 @@ class TrainPositionClassifier extends Command
     
     private function extractImageFeatures($image): array
     {
-        // Redimensionner à 224x224
-        $resized = $image->scale(width: 224, height: 224);
+        // Redimensionner à 112x112 pour réduire la mémoire (au lieu de 224x224)
+        $resized = $image->scale(width: 112, height: 112);
         $features = [];
         
-        for ($y = 0; $y < 224; $y++) {
-            for ($x = 0; $x < 224; $x++) {
+        // Échantillonner tous les 2 pixels
+        for ($y = 0; $y < 112; $y += 2) {
+            for ($x = 0; $x < 112; $x += 2) {
                 try {
                     $color = $resized->pickColor($x, $y);
-                    if ($color && is_array($color) && count($color) >= 3) {
-                        $features[] = (float)($color[0] ?? 0);
-                        $features[] = (float)($color[1] ?? 0);
-                        $features[] = (float)($color[2] ?? 0);
+                    if ($color) {
+                        $rgb = $color->toArray();
+                        $features[] = (float)$rgb[0];
+                        $features[] = (float)$rgb[1];
+                        $features[] = (float)$rgb[2];
                     } else {
                         $features[] = 0.0;
                         $features[] = 0.0;
@@ -158,5 +214,50 @@ class TrainPositionClassifier extends Command
         }
         
         return $total > 0 ? $correct / $total : 0.0;
+    }
+    
+    /**
+     * Équilibrer les classes pour éviter le biais vers les classes majoritaires
+     */
+    private function balanceClasses(array $imagesByPosition): array
+    {
+        // Calculer le nombre d'images par position
+        $counts = array_map('count', $imagesByPosition);
+        
+        // Stratégie : utiliser la médiane comme cible
+        $sortedCounts = $counts;
+        sort($sortedCounts);
+        $medianIndex = (int)(count($sortedCounts) / 2);
+        $targetCount = $sortedCounts[$medianIndex];
+        
+        // Minimum 50 images par classe pour avoir assez de données
+        $targetCount = max(50, $targetCount);
+        
+        $this->info("Cible d'équilibrage : {$targetCount} images par position");
+        
+        $balanced = [];
+        
+        foreach ($imagesByPosition as $position => $images) {
+            $currentCount = count($images);
+            
+            if ($currentCount > $targetCount) {
+                // Sous-échantillonner (réduire) les classes majoritaires
+                shuffle($images);
+                $balanced[$position] = array_slice($images, 0, $targetCount);
+            } elseif ($currentCount < $targetCount) {
+                // Sur-échantillonner (dupliquer) les classes minoritaires
+                $balanced[$position] = $images;
+                $needed = $targetCount - $currentCount;
+                
+                // Dupliquer aléatoirement des images existantes
+                for ($i = 0; $i < $needed; $i++) {
+                    $balanced[$position][] = $images[array_rand($images)];
+                }
+            } else {
+                $balanced[$position] = $images;
+            }
+        }
+        
+        return $balanced;
     }
 }

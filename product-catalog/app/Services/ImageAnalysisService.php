@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 use Rubix\ML\PersistentModel;
 use Rubix\ML\Persisters\Filesystem;
+use Rubix\ML\Datasets\Unlabeled;
 
 class ImageAnalysisService
 {
@@ -73,8 +74,19 @@ class ImageAnalysisService
             // Extraire les features de l'image
             $features = $this->extractImageFeatures($image);
             
-            $prediction = $model->predict([$features]);
-            return $prediction[0] ?? null;
+            // Créer un dataset Unlabeled pour RubixML
+            $dataset = new Unlabeled([$features]);
+            $prediction = $model->predict($dataset);
+            $predictedPosition = $prediction[0] ?? null;
+            
+            // Mapper les anciennes positions vers "Side" si nécessaire
+            if (in_array($predictedPosition, ['Left', 'Right', 'Lateral Left', 'Lateral Right'])) {
+                $predictedPosition = 'Side';
+            }
+            
+            Log::info("Prédiction de position pour {$s3Url}: {$predictedPosition}");
+            
+            return $predictedPosition;
         } catch (\Exception $e) {
             Log::error('Erreur lors de la prédiction de position: ' . $e->getMessage());
             return null;
@@ -98,7 +110,9 @@ class ImageAnalysisService
             // Extraire les features de l'image
             $features = $this->extractImageFeatures($image);
             
-            $prediction = $model->predict([$features]);
+            // Créer un dataset Unlabeled pour RubixML
+            $dataset = new Unlabeled([$features]);
+            $prediction = $model->predict($dataset);
             $result = $prediction[0] ?? 'false';
             
             return $result === 'true' || $result === true;
@@ -138,8 +152,9 @@ class ImageAnalysisService
                 for ($y = $margin; $y < $height - $margin; $y += 10) {
                     try {
                         $color = $resized->pickColor($x, $y);
-                        if ($color && is_array($color) && count($color) >= 3) {
-                            $centerColors[] = $color;
+                        if ($color) {
+                            $rgb = $color->toArray();
+                            $centerColors[] = [(int)$rgb[0], (int)$rgb[1], (int)$rgb[2]];
                         }
                     } catch (\Exception $e) {
                         // Ignorer
@@ -151,16 +166,18 @@ class ImageAnalysisService
             for ($x = 0; $x < $width; $x += 10) {
                 try {
                     $color = $resized->pickColor($x, 0);
-                    if ($color && is_array($color) && count($color) >= 3) {
-                        $edgeColors[] = $color;
+                    if ($color) {
+                        $rgb = $color->toArray();
+                        $edgeColors[] = [(int)$rgb[0], (int)$rgb[1], (int)$rgb[2]];
                     }
                 } catch (\Exception $e) {
                     // Ignorer
                 }
                 try {
                     $color = $resized->pickColor($x, $height - 1);
-                    if ($color && is_array($color) && count($color) >= 3) {
-                        $edgeColors[] = $color;
+                    if ($color) {
+                        $rgb = $color->toArray();
+                        $edgeColors[] = [(int)$rgb[0], (int)$rgb[1], (int)$rgb[2]];
                     }
                 } catch (\Exception $e) {
                     // Ignorer
@@ -170,16 +187,18 @@ class ImageAnalysisService
             for ($y = 0; $y < $height; $y += 10) {
                 try {
                     $color = $resized->pickColor(0, $y);
-                    if ($color && is_array($color) && count($color) >= 3) {
-                        $edgeColors[] = $color;
+                    if ($color) {
+                        $rgb = $color->toArray();
+                        $edgeColors[] = [(int)$rgb[0], (int)$rgb[1], (int)$rgb[2]];
                     }
                 } catch (\Exception $e) {
                     // Ignorer
                 }
                 try {
                     $color = $resized->pickColor($width - 1, $y);
-                    if ($color && is_array($color) && count($color) >= 3) {
-                        $edgeColors[] = $color;
+                    if ($color) {
+                        $rgb = $color->toArray();
+                        $edgeColors[] = [(int)$rgb[0], (int)$rgb[1], (int)$rgb[2]];
                     }
                 } catch (\Exception $e) {
                     // Ignorer
@@ -225,8 +244,9 @@ class ImageAnalysisService
         for ($x = 0; $x < $width; $x += max(1, (int)($width / $sampleSize))) {
             try {
                 $color = $image->pickColor($x, 0);
-                if ($color && is_array($color) && count($color) >= 3) {
-                    $edgePixels[] = $color;
+                if ($color) {
+                    $rgb = $color->toArray();
+                    $edgePixels[] = [(int)$rgb[0], (int)$rgb[1], (int)$rgb[2]];
                 }
             } catch (\Exception $e) {
                 // Ignorer les erreurs de pickColor
@@ -237,8 +257,9 @@ class ImageAnalysisService
         for ($x = 0; $x < $width; $x += max(1, (int)($width / $sampleSize))) {
             try {
                 $color = $image->pickColor($x, $height - 1);
-                if ($color && is_array($color) && count($color) >= 3) {
-                    $edgePixels[] = $color;
+                if ($color) {
+                    $rgb = $color->toArray();
+                    $edgePixels[] = [(int)$rgb[0], (int)$rgb[1], (int)$rgb[2]];
                 }
             } catch (\Exception $e) {
                 // Ignorer les erreurs
@@ -249,8 +270,9 @@ class ImageAnalysisService
         for ($y = 0; $y < $height; $y += max(1, (int)($height / $sampleSize))) {
             try {
                 $color = $image->pickColor(0, $y);
-                if ($color && is_array($color) && count($color) >= 3) {
-                    $edgePixels[] = $color;
+                if ($color) {
+                    $rgb = $color->toArray();
+                    $edgePixels[] = [(int)$rgb[0], (int)$rgb[1], (int)$rgb[2]];
                 }
             } catch (\Exception $e) {
                 // Ignorer les erreurs
@@ -261,8 +283,9 @@ class ImageAnalysisService
         for ($y = 0; $y < $height; $y += max(1, (int)($height / $sampleSize))) {
             try {
                 $color = $image->pickColor($width - 1, $y);
-                if ($color && is_array($color) && count($color) >= 3) {
-                    $edgePixels[] = $color;
+                if ($color) {
+                    $rgb = $color->toArray();
+                    $edgePixels[] = [(int)$rgb[0], (int)$rgb[1], (int)$rgb[2]];
                 }
             } catch (\Exception $e) {
                 // Ignorer les erreurs
@@ -282,45 +305,95 @@ class ImageAnalysisService
 
     /**
      * Détecter la couleur dominante du vêtement
+     * Échantillonne 30% de la surface centrale de l'image
      */
     private function detectDominantColor($image): ?string
     {
         try {
             // Redimensionner pour accélérer le traitement
-            $resized = $image->scale(width: 200);
+            $resized = $image->scale(width: 150);
             $width = $resized->width();
             $height = $resized->height();
             
+            Log::info("Détection couleur - Image redimensionnée: {$width}x{$height}");
+            
             if ($width < 20 || $height < 20) {
+                Log::warning("Image trop petite pour la détection de couleur: {$width}x{$height}");
                 return null;
             }
             
-            // Extraire les couleurs (ignorer les bords pour éviter le fond)
-            $colors = [];
-            $margin = min(20, (int)($width * 0.1)); // 10% de marge ou 20px max
+            // Calculer une zone centrale représentant 30% de l'image
+            // Centrée sur le milieu de l'image
+            $centerX = (int)($width / 2);
+            $centerY = (int)($height / 2);
             
-            for ($x = $margin; $x < $width - $margin; $x += 5) {
-                for ($y = $margin; $y < $height - $margin; $y += 5) {
+            // Zone de 30% de la largeur et hauteur
+            $zoneWidth = (int)($width * 0.3);
+            $zoneHeight = (int)($height * 0.3);
+            
+            // Coordonnées de la zone centrale
+            $startX = max(0, $centerX - (int)($zoneWidth / 2));
+            $endX = min($width, $centerX + (int)($zoneWidth / 2));
+            $startY = max(0, $centerY - (int)($zoneHeight / 2));
+            $endY = min($height, $centerY + (int)($zoneHeight / 2));
+            
+            Log::info("Zone d'échantillonnage centrale (30%): X[{$startX}-{$endX}] Y[{$startY}-{$endY}] - Taille: " . ($endX - $startX) . "x" . ($endY - $startY));
+            
+            // Extraire les couleurs de la zone centrale
+            $colors = [];
+            $blackPixels = 0;
+            $whitePixels = 0;
+            
+            for ($x = $startX; $x < $endX; $x += 2) {
+                for ($y = $startY; $y < $endY; $y += 2) {
                     try {
                         $color = $resized->pickColor($x, $y);
-                        if ($color && is_array($color) && count($color) >= 3) {
-                            $colors[] = $color;
+                        // pickColor retourne un objet Color - utiliser toArray()
+                        if ($color) {
+                            $rgb = $color->toArray(); // Retourne [R, G, B, Alpha]
+                            $r = (int)$rgb[0];
+                            $g = (int)$rgb[1];
+                            $b = (int)$rgb[2];
+                            
+                            // Calculer la luminosité
+                            $luminance = ($r + $g + $b) / 3;
+                            
+                            // Filtrer uniquement les pixels purement noirs ou purement blancs
+                            // Seuils plus permissifs pour inclure les gris
+                            if ($luminance < 10) {
+                                $blackPixels++;
+                                continue; // Ignorer uniquement le noir pur
+                            }
+                            if ($luminance > 245) {
+                                $whitePixels++;
+                                continue; // Ignorer uniquement le blanc pur
+                            }
+                            
+                            $colors[] = [$r, $g, $b];
                         }
                     } catch (\Exception $e) {
-                        // Ignorer les erreurs
+                        // Ignorer les erreurs de pickColor
                     }
                 }
             }
             
+            Log::info("Pixels filtrés: {$blackPixels} noirs, {$whitePixels} blancs, " . count($colors) . " couleurs valides");
+            
             if (empty($colors)) {
+                Log::warning('Aucune couleur extraite pour la détection de couleur dominante');
                 return null;
             }
+            
+            Log::info("Extraction de " . count($colors) . " couleurs pour analyse");
             
             // Trouver la couleur dominante
             $dominantColor = $this->findDominantColor($colors);
             
             // Convertir RGB en hex
-            return $this->rgbToHex($dominantColor);
+            $hex = $this->rgbToHex($dominantColor);
+            Log::info("Couleur dominante calculée: {$hex}");
+            
+            return $hex;
         } catch (\Exception $e) {
             Log::error('Erreur lors de la détection de couleur: ' . $e->getMessage());
             return null;
@@ -329,21 +402,26 @@ class ImageAnalysisService
 
     /**
      * Extraire les features d'une image pour RubixML
+     * DOIT correspondre EXACTEMENT à la méthode utilisée lors de l'entraînement
      */
     private function extractImageFeatures($image): array
     {
-        // Redimensionner à 224x224 pour standardiser
-        $resized = $image->scale(width: 224, height: 224);
+        // Redimensionner à 112x112 pour réduire la mémoire (au lieu de 224x224)
+        // Cela divise par 4 la taille des features
+        $resized = $image->scale(width: 112, height: 112);
         $features = [];
         
-        for ($y = 0; $y < 224; $y++) {
-            for ($x = 0; $x < 224; $x++) {
+        // Échantillonner tous les 2 pixels pour réduire encore la mémoire
+        // IMPORTANT : cela doit correspondre EXACTEMENT à l'entraînement
+        for ($y = 0; $y < 112; $y += 2) {
+            for ($x = 0; $x < 112; $x += 2) {
                 try {
                     $color = $resized->pickColor($x, $y);
-                    if ($color && is_array($color) && count($color) >= 3) {
-                        $features[] = (float)($color[0] ?? 0); // R
-                        $features[] = (float)($color[1] ?? 0); // G
-                        $features[] = (float)($color[2] ?? 0); // B
+                    if ($color) {
+                        $rgb = $color->toArray(); // Retourne [R, G, B, Alpha]
+                        $features[] = (float)$rgb[0]; // R
+                        $features[] = (float)$rgb[1]; // G
+                        $features[] = (float)$rgb[2]; // B
                     } else {
                         $features[] = 0.0;
                         $features[] = 0.0;
@@ -409,7 +487,7 @@ class ImageAnalysisService
     }
 
     /**
-     * Trouver la couleur dominante (algorithme simplifié)
+     * Trouver la couleur dominante (algorithme simplifié avec clustering plus fin)
      */
     private function findDominantColor(array $colors): array
     {
@@ -425,10 +503,11 @@ class ImageAnalysisService
             $g = (int)($color[1] ?? 0);
             $b = (int)($color[2] ?? 0);
             
-            // Quantifier les couleurs (réduire la précision pour grouper)
-            $r = (int)($r / 32) * 32;
-            $g = (int)($g / 32) * 32;
-            $b = (int)($b / 32) * 32;
+            // Quantifier les couleurs avec une granularité plus fine (pas de 16 au lieu de 32)
+            // Cela permet de mieux distinguer les nuances (gris vs noir, gris clair vs gris foncé)
+            $r = (int)($r / 16) * 16;
+            $g = (int)($g / 16) * 16;
+            $b = (int)($b / 16) * 16;
             
             $key = "$r,$g,$b";
             
@@ -465,6 +544,8 @@ class ImageAnalysisService
                 ];
             }
         }
+        
+        Log::info("Couleur dominante brute trouvée: R{$dominant[0]} G{$dominant[1]} B{$dominant[2]} (sur {$maxCount} pixels)");
         
         return $dominant;
     }

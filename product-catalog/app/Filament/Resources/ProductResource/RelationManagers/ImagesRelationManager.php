@@ -42,30 +42,41 @@ class ImagesRelationManager extends RelationManager
                     ->required()
                     ->deletable(true)
                     ->downloadable(),
+                Forms\Components\Radio::make('management_type')
+                    ->label('Gestion des métadonnées')
+                    ->options([
+                        'ai_managed' => 'AI Managed - L\'IA déterminera automatiquement les métadonnées',
+                        'user_managed' => 'User Managed - Je définis manuellement les métadonnées',
+                    ])
+                    ->default('ai_managed')
+                    ->required()
+                    ->reactive()
+                    ->helperText('Choisissez comment gérer les métadonnées de cette image'),
                 Forms\Components\Select::make('position')
                     ->label('Position')
                     ->options([
                         'Front' => 'Front',
                         'Back' => 'Back',
-                        'Left' => 'Left',
-                        'Right' => 'Right',
-                        'Lateral Left' => 'Lateral Left',
-                        'Lateral Right' => 'Lateral Right',
+                        'Side' => 'Side',
                         'Top' => 'Top',
                         'Bottom' => 'Bottom',
                         'Part Zoom' => 'Part Zoom',
                     ])
                     ->placeholder('Sélectionnez la position de l\'image')
                     ->searchable()
-                    ->helperText('Position/vue de l\'image du produit'),
+                    ->helperText('Position/vue de l\'image du produit')
+                    ->hidden(fn (callable $get) => $get('management_type') === 'ai_managed')
+                    ->required(fn (callable $get) => $get('management_type') === 'user_managed'),
                 Forms\Components\Toggle::make('neutral_background')
                     ->label('Neutral background')
                     ->helperText('Cocher si l\'image a un fond neutre')
-                    ->default(false),
+                    ->default(false)
+                    ->hidden(fn (callable $get) => $get('management_type') === 'ai_managed'),
                 Forms\Components\Toggle::make('product_only')
                     ->label('Product only')
                     ->helperText('Cocher si l\'image contient seulement le vêtement (pas de mise en situation, personne qui porte le vêtement, etc.)')
-                    ->default(false),
+                    ->default(false)
+                    ->hidden(fn (callable $get) => $get('management_type') === 'ai_managed'),
                 Forms\Components\Toggle::make('is_default')
                     ->label('Image par défaut')
                     ->helperText('Cocher pour définir cette image comme image par défaut du produit. Une seule image peut être par défaut.')
@@ -123,10 +134,7 @@ class ImagesRelationManager extends RelationManager
                     ->options([
                         'Front' => 'Front',
                         'Back' => 'Back',
-                        'Left' => 'Left',
-                        'Right' => 'Right',
-                        'Lateral Left' => 'Lateral Left',
-                        'Lateral Right' => 'Lateral Right',
+                        'Side' => 'Side',
                         'Top' => 'Top',
                         'Bottom' => 'Bottom',
                         'Part Zoom' => 'Part Zoom',
@@ -145,6 +153,22 @@ class ImagesRelationManager extends RelationManager
                     ->sortable()
                     ->onColor('info')
                     ->offColor('gray'),
+                Tables\Columns\TextColumn::make('status')
+                    ->label('Statut')
+                    ->badge()
+                    ->color(fn (string $state): string => match ($state) {
+                        'waitML' => 'warning',
+                        'userDefined' => 'success',
+                        'MLcompleted' => 'info',
+                        default => 'gray',
+                    })
+                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                        'waitML' => 'En attente ML',
+                        'userDefined' => 'Défini manuellement',
+                        'MLcompleted' => 'Traité par ML',
+                        default => $state,
+                    })
+                    ->sortable(),
                 Tables\Columns\ToggleColumn::make('is_default')
                     ->label('Par défaut')
                     ->sortable()
@@ -215,15 +239,27 @@ class ImagesRelationManager extends RelationManager
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                Tables\Filters\SelectFilter::make('status')
+                    ->label('Statut')
+                    ->options([
+                        'waitML' => 'En attente ML',
+                        'userDefined' => 'Défini manuellement',
+                        'MLcompleted' => 'Traité par ML',
+                    ])
+                    ->multiple(),
+                Tables\Filters\SelectFilter::make('management_type')
+                    ->label('Type de gestion')
+                    ->options([
+                        'ai_managed' => 'AI Managed',
+                        'user_managed' => 'User Managed',
+                    ])
+                    ->multiple(),
                 Tables\Filters\SelectFilter::make('position')
                     ->label('Position')
                     ->options([
                         'Front' => 'Front',
                         'Back' => 'Back',
-                        'Left' => 'Left',
-                        'Right' => 'Right',
-                        'Lateral Left' => 'Lateral Left',
-                        'Lateral Right' => 'Lateral Right',
+                        'Side' => 'Side',
                         'Top' => 'Top',
                         'Bottom' => 'Bottom',
                         'Part Zoom' => 'Part Zoom',

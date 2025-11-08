@@ -13,11 +13,15 @@ use Illuminate\Support\Facades\File;
 
 class TrainBackgroundClassifier extends Command
 {
-    protected $signature = 'ml:train-background {--test-ratio=0.2}';
+    protected $signature = 'ml:train-background {--test-ratio=0.2} {--memory=2048M} {--balance : Équilibrer les classes pour éviter le biais}';
     protected $description = 'Entraîner le modèle de classification de fond neutre';
 
     public function handle()
     {
+        // Augmenter la limite de mémoire
+        $memoryLimit = $this->option('memory');
+        ini_set('memory_limit', $memoryLimit);
+        
         $this->info('Entraînement du modèle de classification de fond neutre...');
         
         $trainingDir = storage_path('app/training/images/background');
@@ -35,6 +39,7 @@ class TrainBackgroundClassifier extends Command
         $categories = ['neutral', 'non-neutral'];
         $samples = [];
         $labels = [];
+        $imagesByCategory = [];
         
         $imageManager = new ImageManager(new Driver());
         
@@ -54,19 +59,41 @@ class TrainBackgroundClassifier extends Command
             }
             
             $this->info("Traitement de {$category}: " . count($images) . " images");
+            $imagesByCategory[$category] = $images;
+        }
+        
+        // Équilibrer les classes si demandé
+        if ($this->option('balance')) {
+            $this->info("\n🔄 Équilibrage des classes...");
+            $imagesByCategory = $this->balanceClasses($imagesByCategory);
             
+            foreach ($imagesByCategory as $category => $images) {
+                $this->info("Après équilibrage - '{$category}': " . count($images) . " images");
+            }
+        }
+        
+        // Extraire les features
+        $this->info("\n📊 Extraction des features...");
+        $progressBar = $this->output->createProgressBar(array_sum(array_map('count', $imagesByCategory)));
+        $progressBar->start();
+        
+        foreach ($imagesByCategory as $category => $images) {
+            $label = $category === 'neutral' ? 'true' : 'false';
             foreach ($images as $imagePath) {
                 try {
                     $image = $imageManager->read(file_get_contents($imagePath));
                     $features = $this->extractBackgroundFeatures($image);
                     
                     $samples[] = $features;
-                    $labels[] = $category === 'neutral' ? 'true' : 'false';
+                    $labels[] = $label;
+                    $progressBar->advance();
                 } catch (\Exception $e) {
-                    $this->warn("Erreur lors du traitement de {$imagePath}: " . $e->getMessage());
+                    $this->warn("\nErreur lors du traitement de {$imagePath}: " . $e->getMessage());
                 }
             }
         }
+        $progressBar->finish();
+        $this->newLine();
         
         if (empty($samples)) {
             $this->error('Aucune image valide trouvée pour l\'entraînement');
@@ -219,5 +246,50 @@ class TrainBackgroundClassifier extends Command
         }
         
         return $total > 0 ? $correct / $total : 0.0;
+    }
+    
+    /**
+     * Équilibrer les classes pour éviter le biais vers les classes majoritaires
+     */
+    private function balanceClasses(array $imagesByCategory): array
+    {
+        // Calculer le nombre d'images par catégorie
+        $counts = array_map('count', $imagesByCategory);
+        
+        // Stratégie : utiliser la médiane comme cible
+        $sortedCounts = $counts;
+        sort($sortedCounts);
+        $medianIndex = (int)(count($sortedCounts) / 2);
+        $targetCount = $sortedCounts[$medianIndex];
+        
+        // Minimum 50 images par classe pour avoir assez de données
+        $targetCount = max(50, $targetCount);
+        
+        $this->info("Cible d'équilibrage : {$targetCount} images par catégorie");
+        
+        $balanced = [];
+        
+        foreach ($imagesByCategory as $category => $images) {
+            $currentCount = count($images);
+            
+            if ($currentCount > $targetCount) {
+                // Sous-échantillonner (réduire) les classes majoritaires
+                shuffle($images);
+                $balanced[$category] = array_slice($images, 0, $targetCount);
+            } elseif ($currentCount < $targetCount) {
+                // Sur-échantillonner (dupliquer) les classes minoritaires
+                $balanced[$category] = $images;
+                $needed = $targetCount - $currentCount;
+                
+                // Dupliquer aléatoirement des images existantes
+                for ($i = 0; $i < $needed; $i++) {
+                    $balanced[$category][] = $images[array_rand($images)];
+                }
+            } else {
+                $balanced[$category] = $images;
+            }
+        }
+        
+        return $balanced;
     }
 }
