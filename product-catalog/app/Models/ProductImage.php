@@ -22,12 +22,14 @@ class ProductImage extends Model
         's3_url',
         'position',
         'neutral_background',
+        'product_only',
         'is_default',
         'thumbnail_s3_url',
     ];
 
     protected $casts = [
         'neutral_background' => 'boolean',
+        'product_only' => 'boolean',
         'is_default' => 'boolean',
     ];
 
@@ -80,7 +82,7 @@ class ProductImage extends Model
             }
         });
 
-        // Générer la miniature après la sauvegarde
+        // Générer la miniature et analyser l'image après la sauvegarde
         static::saved(function ($image) {
             if ($image->is_default && $image->s3_url) {
                 // Générer la miniature WebP si elle n'existe pas ou si l'image a changé
@@ -89,6 +91,40 @@ class ProductImage extends Model
                     // Sauvegarder le chemin de la miniature sans déclencher les hooks
                     $image->updateQuietly(['thumbnail_s3_url' => $image->thumbnail_s3_url]);
                 }
+            }
+            
+            // Analyser l'image automatiquement si c'est une nouvelle image ou si l'image a changé
+            if ($image->s3_url && ($image->wasRecentlyCreated || $image->wasChanged('s3_url'))) {
+                // Analyser en arrière-plan via une queue
+                dispatch(function () use ($image) {
+                    try {
+                        $analysisService = app(\App\Services\ImageAnalysisService::class);
+                        $analysis = $analysisService->analyzeImage($image->s3_url);
+                        
+                        // Mettre à jour l'image avec les résultats de l'analyse
+                        $updates = [];
+                        
+                        if ($analysis['position'] && !$image->position) {
+                            $updates['position'] = $analysis['position'];
+                        }
+                        
+                        if (isset($analysis['neutral_background']) && !$image->neutral_background) {
+                            $updates['neutral_background'] = $analysis['neutral_background'];
+                        }
+                        
+                        if (!empty($updates)) {
+                            $image->updateQuietly($updates);
+                        }
+                        
+                        // Si une couleur dominante est détectée, on peut suggérer une variante
+                        // (à implémenter selon vos besoins)
+                        if ($analysis['dominant_color']) {
+                            \Log::info("Couleur dominante détectée pour l'image {$image->id}: {$analysis['dominant_color']}");
+                        }
+                    } catch (\Exception $e) {
+                        \Log::error('Erreur lors de l\'analyse automatique de l\'image: ' . $e->getMessage());
+                    }
+                })->afterResponse(); // Exécuter après la réponse pour ne pas ralentir l'upload
             }
         });
 

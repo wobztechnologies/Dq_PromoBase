@@ -49,8 +49,11 @@ class ImagesRelationManager extends RelationManager
                         'Back' => 'Back',
                         'Left' => 'Left',
                         'Right' => 'Right',
+                        'Lateral Left' => 'Lateral Left',
+                        'Lateral Right' => 'Lateral Right',
                         'Top' => 'Top',
                         'Bottom' => 'Bottom',
+                        'Part Zoom' => 'Part Zoom',
                     ])
                     ->placeholder('Sélectionnez la position de l\'image')
                     ->searchable()
@@ -58,6 +61,10 @@ class ImagesRelationManager extends RelationManager
                 Forms\Components\Toggle::make('neutral_background')
                     ->label('Neutral background')
                     ->helperText('Cocher si l\'image a un fond neutre')
+                    ->default(false),
+                Forms\Components\Toggle::make('product_only')
+                    ->label('Product only')
+                    ->helperText('Cocher si l\'image contient seulement le vêtement (pas de mise en situation, personne qui porte le vêtement, etc.)')
                     ->default(false),
                 Forms\Components\Toggle::make('is_default')
                     ->label('Image par défaut')
@@ -118,8 +125,11 @@ class ImagesRelationManager extends RelationManager
                         'Back' => 'Back',
                         'Left' => 'Left',
                         'Right' => 'Right',
+                        'Lateral Left' => 'Lateral Left',
+                        'Lateral Right' => 'Lateral Right',
                         'Top' => 'Top',
                         'Bottom' => 'Bottom',
+                        'Part Zoom' => 'Part Zoom',
                     ])
                     ->searchable()
                     ->sortable()
@@ -129,6 +139,11 @@ class ImagesRelationManager extends RelationManager
                     ->label('Neutral background')
                     ->sortable()
                     ->onColor('success')
+                    ->offColor('gray'),
+                Tables\Columns\ToggleColumn::make('product_only')
+                    ->label('Product only')
+                    ->sortable()
+                    ->onColor('info')
                     ->offColor('gray'),
                 Tables\Columns\ToggleColumn::make('is_default')
                     ->label('Par défaut')
@@ -207,8 +222,11 @@ class ImagesRelationManager extends RelationManager
                         'Back' => 'Back',
                         'Left' => 'Left',
                         'Right' => 'Right',
+                        'Lateral Left' => 'Lateral Left',
+                        'Lateral Right' => 'Lateral Right',
                         'Top' => 'Top',
                         'Bottom' => 'Bottom',
+                        'Part Zoom' => 'Part Zoom',
                     ])
                     ->multiple(),
                 Tables\Filters\TernaryFilter::make('neutral_background')
@@ -216,6 +234,11 @@ class ImagesRelationManager extends RelationManager
                     ->placeholder('Tous')
                     ->trueLabel('Avec fond neutre')
                     ->falseLabel('Sans fond neutre'),
+                Tables\Filters\TernaryFilter::make('product_only')
+                    ->label('Product only')
+                    ->placeholder('Tous')
+                    ->trueLabel('Vêtement seul')
+                    ->falseLabel('Mise en situation'),
             ])
             ->headerActions([
                 Tables\Actions\CreateAction::make(),
