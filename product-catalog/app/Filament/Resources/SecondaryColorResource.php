@@ -17,11 +17,11 @@ class SecondaryColorResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-swatch';
 
-    protected static ?string $navigationLabel = 'Couleurs secondaires';
+    protected static ?string $navigationLabel = 'Couleurs fabricant';
 
-    protected static ?string $modelLabel = 'Couleur secondaire';
+    protected static ?string $modelLabel = 'Couleur fabricant';
 
-    protected static ?string $pluralModelLabel = 'Couleurs secondaires';
+    protected static ?string $pluralModelLabel = 'Couleurs fabricant';
 
     protected static ?int $navigationSort = 2;
 
@@ -42,7 +42,14 @@ class SecondaryColorResource extends Resource
                     ->required()
                     ->searchable()
                     ->preload()
-                    ->helperText('Sélectionnez la couleur principale à laquelle cette couleur secondaire appartient'),
+                    ->helperText('Sélectionnez la couleur principale à laquelle cette couleur fabricant appartient'),
+                Forms\Components\Select::make('manufacturer_id')
+                    ->label('Fabricant')
+                    ->relationship('manufacturer', 'name')
+                    ->required()
+                    ->searchable()
+                    ->preload()
+                    ->helperText('Sélectionnez le fabricant associé à cette couleur fabricant'),
                 Forms\Components\TextInput::make('name')
                     ->label('Nom de la variante')
                     ->required()
@@ -65,6 +72,10 @@ class SecondaryColorResource extends Resource
                     ->sortable(),
                 Tables\Columns\TextColumn::make('parent.name')
                     ->label('Couleur principale')
+                    ->searchable()
+                    ->sortable(),
+                Tables\Columns\TextColumn::make('manufacturer.name')
+                    ->label('Fabricant')
                     ->searchable()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('hex_code')
@@ -93,6 +104,11 @@ class SecondaryColorResource extends Resource
                 Tables\Filters\SelectFilter::make('parent_id')
                     ->label('Couleur principale')
                     ->relationship('parent', 'name')
+                    ->searchable()
+                    ->preload(),
+                Tables\Filters\SelectFilter::make('manufacturer_id')
+                    ->label('Fabricant')
+                    ->relationship('manufacturer', 'name')
                     ->searchable()
                     ->preload(),
             ])

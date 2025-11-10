@@ -41,6 +41,11 @@ class Manufacturer extends Model
         return $this->hasMany(Product::class);
     }
 
+    public function manufacturerColors(): HasMany
+    {
+        return $this->hasMany(PrimaryColor::class, 'manufacturer_id')->whereNotNull('parent_id');
+    }
+
     /**
      * Obtenir l'URL complète du logo
      */

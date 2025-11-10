@@ -1,0 +1,46 @@
+{
+  "views": {
+    "front": "s3://your-bucket-name/products/images/ee6cb18b-ff82-4967-b930-e5f8341b8477.jpg",
+    "back": "s3://your-bucket-name/products/images/cf2ea6b2-d501-4f4c-aecf-610db1ab3ec1.jpg",
+    "left": "s3://your-bucket-name/products/images/278e7029-ff06-4dca-99a7-5755c9987929.jpg"
+  },
+  "output_path": "s3://your-bucket-name/models/ai-generated/PROD-000045_2025-11-10_10-15-30_abc123de.glb",
+  "options": {
+    "target_faces": 10000,
+    "compression_level": 10
+  }
+}
+
+EXEMPLE RÉEL basé sur les logs :
+
+Requête POST vers: https://api.3dai.example.com/api/generate-3d
+Headers: 
+  Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGc...
+  Content-Type: application/json
+
+Body:
+{
+  "views": {
+    "front": "s3://your-bucket/products/images/ee6cb18b-ff82-4967-b930-e5f8341b8477.jpg",
+    "back": "s3://your-bucket/products/images/cf2ea6b2-d501-4f4c-aecf-610db1ab3ec1.jpg",
+    "left": "s3://your-bucket/products/images/278e7029-ff06-4dca-99a7-5755c9987929.jpg"
+  },
+  "output_path": "s3://your-bucket/models/ai-generated/PROD-000045_2025-11-10_10-15-30_abc123de.glb",
+  "options": {
+    "target_faces": 10000,
+    "compression_level": 10
+  }
+}
+
+Réponse attendue:
+{
+  "job_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "pending"
+}
+
+Note: 
+- Remplacez "your-bucket" par votre vrai nom de bucket AWS_BUCKET
+- Les chemins S3 correspondent aux chemins réels stockés dans la colonne s3_url de product_images
+- Le token JWT est obtenu automatiquement via /api/login avant chaque requête
+- Les positions "Front", "Back", "Side" sont mappées vers "front", "back", "left"
+

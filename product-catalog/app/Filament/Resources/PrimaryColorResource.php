@@ -65,7 +65,7 @@ class PrimaryColorResource extends Resource
                             : '-'
                     ),
                 Tables\Columns\TextColumn::make('children_count')
-                    ->label('Couleurs secondaires')
+                    ->label('Couleurs fabricant')
                     ->counts('children')
                     ->sortable()
                     ->url(fn ($record) => 

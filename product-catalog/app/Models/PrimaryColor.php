@@ -18,7 +18,17 @@ class PrimaryColor extends Model
         'name',
         'hex_code',
         'parent_id',
+        'manufacturer_id',
     ];
+
+    protected static function booted(): void
+    {
+        static::creating(function ($color) {
+            if (empty($color->id)) {
+                $color->id = (string) \Illuminate\Support\Str::uuid();
+            }
+        });
+    }
 
     public function parent(): BelongsTo
     {
@@ -33,6 +43,11 @@ class PrimaryColor extends Model
     public function colorVariants(): HasMany
     {
         return $this->hasMany(ProductColorVariant::class);
+    }
+
+    public function manufacturer(): BelongsTo
+    {
+        return $this->belongsTo(Manufacturer::class);
     }
 
     /**
