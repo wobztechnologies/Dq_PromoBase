@@ -50,6 +50,15 @@ class ProductImage extends Model
                     $image->is_default = true;
                 }
             }
+            
+            // Définir le statut initial selon le management_type
+            if (!$image->status) {
+                if ($image->management_type === 'user_managed') {
+                    $image->status = 'userDefined';
+                } else {
+                    $image->status = 'waitML';
+                }
+            }
         });
 
         // Supprimer le fichier S3 lors de la suppression de l'image
@@ -82,6 +91,15 @@ class ProductImage extends Model
                     $image->thumbnail_s3_url = null;
                 }
             }
+            
+            // Définir le statut selon le management_type lors de la création ou si management_type change
+            if ($image->isDirty('management_type') || (!$image->exists && !$image->status)) {
+                if ($image->management_type === 'user_managed') {
+                    $image->status = 'userDefined';
+                } else {
+                    $image->status = 'waitML';
+                }
+            }
         });
 
         // Générer la miniature et analyser l'image après la sauvegarde
@@ -95,13 +113,13 @@ class ProductImage extends Model
                 }
             }
             
-            // Déterminer le statut en fonction du management_type et de la position
-            if ($image->wasRecentlyCreated || $image->wasChanged('management_type') || $image->wasChanged('position')) {
+            // Déterminer le statut en fonction du management_type
+            if ($image->wasRecentlyCreated || $image->wasChanged('management_type')) {
                 if ($image->management_type === 'user_managed') {
-                    // Si User Managed et Position définie → userDefined, sinon waitML
-                    $image->status = $image->position ? 'userDefined' : 'waitML';
+                    // Si User Managed → userDefined (traité par l'utilisateur, pas besoin de ML)
+                    $image->status = 'userDefined';
                 } else {
-                    // Si AI Managed → waitML (sera traité par la commande)
+                    // Si AI Managed → waitML (sera traité par la commande ML)
                     $image->status = 'waitML';
                 }
             }
@@ -193,8 +211,11 @@ class ProductImage extends Model
             // Encoder en WebP
             $webpContent = $image->toWebp(90);
 
-            // Générer le chemin de la miniature
-            $thumbnailPath = 'products/thumbnails/' . pathinfo($this->s3_url, PATHINFO_FILENAME) . '.webp';
+            // Générer le chemin de la miniature selon la nouvelle structure
+            $product = $this->product;
+            $basePath = $product->getAssetsBasePath();
+            $filename = pathinfo($this->s3_url, PATHINFO_FILENAME);
+            $thumbnailPath = $basePath . '/' . $filename . '_thumb.webp';
 
             // Supprimer l'ancienne miniature si elle existe
             if ($this->thumbnail_s3_url && $this->thumbnail_s3_url !== $thumbnailPath) {

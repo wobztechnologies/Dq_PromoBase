@@ -2,16 +2,18 @@
 
 ## Structure des dossiers
 
-### Position (Front, Back, Side, Top, Bottom, Part Zoom)
+### Position (Back, Bottom, Front, PartZoom, Side, Top, Left, Right)
 Placez vos images d'entraînement dans les dossiers suivants :
-- `images/position/Front/` - Images de produits vus de face
 - `images/position/Back/` - Images de produits vus de derrière
-- `images/position/Side/` - Images de produits vus de côté (gauche, droite, latéral gauche, latéral droit)
-- `images/position/Top/` - Images de produits vus du dessus
 - `images/position/Bottom/` - Images de produits vus du dessous
+- `images/position/Front/` - Images de produits vus de face
 - `images/position/PartZoom/` - Images zoomées sur une partie spécifique du produit
+- `images/position/Side/` - Images de produits vus de côté (général)
+- `images/position/Top/` - Images de produits vus du dessus
+- `images/position/Left/` - Images de produits vus de côté gauche
+- `images/position/Right/` - Images de produits vus de côté droit
 
-**Note** : Les anciens dossiers `Left`, `Right`, `LateralLeft`, et `LateralRight` sont automatiquement inclus dans `Side` lors de l'entraînement. Vous pouvez les déplacer manuellement dans `Side` ou utiliser la commande `php artisan ml:reorganize-training-folders`.
+**Note** : Les anciens dossiers `LateralLeft` et `LateralRight` sont automatiquement inclus lors de l'entraînement pour assurer la compatibilité. Les images de `LateralLeft` seront utilisées pour entraîner `Left`, et les images de `LateralRight` seront utilisées pour entraîner `Right`. Vous pouvez les réorganiser manuellement ou utiliser la commande `php artisan ml:reorganize-training-folders`.
 
 ### Background (Neutral / Non-neutral)
 Placez vos images d'entraînement dans les dossiers suivants :

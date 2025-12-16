@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\File;
 class ReorganizeTrainingFolders extends Command
 {
     protected $signature = 'ml:reorganize-training-folders {--dry-run : Afficher les actions sans les exécuter}';
-    protected $description = 'Réorganiser les dossiers d\'entraînement : regrouper Left, Right, LateralLeft, LateralRight dans Side';
+    protected $description = 'Réorganiser les dossiers d\'entraînement : répartir LateralLeft et LateralRight dans Left et Right';
 
     public function handle()
     {
@@ -20,23 +20,30 @@ class ReorganizeTrainingFolders extends Command
             return 1;
         }
         
-        $oldFolders = ['Left', 'Right', 'LateralLeft', 'LateralRight'];
-        $targetFolder = $trainingDir . '/Side';
+        // Mapping des anciens dossiers vers les nouveaux
+        $folderMapping = [
+            'LateralLeft' => 'Left',  // LateralLeft → Left
+            'LateralRight' => 'Right', // LateralRight → Right
+        ];
         
-        // Créer le dossier Side s'il n'existe pas
-        if (!File::exists($targetFolder)) {
-            if (!$dryRun) {
-                File::makeDirectory($targetFolder, 0755, true);
-                $this->info("✅ Dossier créé: {$targetFolder}");
-            } else {
-                $this->info("🔍 [DRY RUN] Créerait le dossier: {$targetFolder}");
+        // Créer les dossiers Left et Right s'ils n'existent pas
+        foreach (['Left', 'Right'] as $targetFolderName) {
+            $targetFolder = $trainingDir . '/' . $targetFolderName;
+            if (!File::exists($targetFolder)) {
+                if (!$dryRun) {
+                    File::makeDirectory($targetFolder, 0755, true);
+                    $this->info("✅ Dossier créé: {$targetFolder}");
+                } else {
+                    $this->info("🔍 [DRY RUN] Créerait le dossier: {$targetFolder}");
+                }
             }
         }
         
         $totalMoved = 0;
         
-        foreach ($oldFolders as $oldFolder) {
+        foreach ($folderMapping as $oldFolder => $targetFolderName) {
             $oldPath = $trainingDir . '/' . $oldFolder;
+            $targetFolder = $trainingDir . '/' . $targetFolderName;
             
             if (!File::exists($oldPath)) {
                 $this->warn("Dossier non trouvé (ignoré): {$oldPath}");
@@ -56,13 +63,13 @@ class ReorganizeTrainingFolders extends Command
                 continue;
             }
             
-            $this->info("📁 {$oldFolder}: " . count($images) . " image(s) à déplacer");
+            $this->info("📁 {$oldFolder}: " . count($images) . " image(s) à déplacer vers {$targetFolderName}");
             
             foreach ($images as $imagePath) {
                 $filename = basename($imagePath);
                 $targetPath = $targetFolder . '/' . $filename;
                 
-                // Si le fichier existe déjà dans Side, ajouter un préfixe
+                // Si le fichier existe déjà dans le dossier cible, ajouter un préfixe
                 if (File::exists($targetPath)) {
                     $name = pathinfo($filename, PATHINFO_FILENAME);
                     $ext = pathinfo($filename, PATHINFO_EXTENSION);
@@ -74,7 +81,7 @@ class ReorganizeTrainingFolders extends Command
                     File::move($imagePath, $targetPath);
                     $totalMoved++;
                 } else {
-                    $this->info("  🔍 [DRY RUN] Déplacerait: {$filename} → " . basename($targetPath));
+                    $this->info("  🔍 [DRY RUN] Déplacerait: {$filename} → {$targetFolderName}/" . basename($targetPath));
                     $totalMoved++;
                 }
             }
@@ -97,7 +104,7 @@ class ReorganizeTrainingFolders extends Command
             $this->info("Pour exécuter réellement, relancez la commande sans --dry-run");
         } else {
             $this->newLine();
-            $this->info("✅ Réorganisation terminée: {$totalMoved} image(s) déplacée(s) vers Side");
+            $this->info("✅ Réorganisation terminée: {$totalMoved} image(s) déplacée(s) vers Left et Right");
         }
         
         return 0;

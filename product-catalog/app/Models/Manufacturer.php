@@ -21,6 +21,13 @@ class Manufacturer extends Model
 
     protected static function booted(): void
     {
+        // Générer un UUID lors de la création
+        static::creating(function ($manufacturer) {
+            if (empty($manufacturer->id)) {
+                $manufacturer->id = (string) \Illuminate\Support\Str::uuid();
+            }
+        });
+
         // Supprimer le logo de S3 lors de la suppression du fabricant
         static::deleting(function ($manufacturer) {
             if ($manufacturer->logo_s3_url) {
@@ -56,5 +63,23 @@ class Manufacturer extends Model
         }
 
         return Storage::disk('s3')->url($this->logo_s3_url);
+    }
+
+    /**
+     * Obtenir l'URL présignée du logo
+     */
+    public function getLogoSignedUrlAttribute(): ?string
+    {
+        if (!$this->logo_s3_url) {
+            return null;
+        }
+
+        try {
+            // Générer une URL présignée valide pendant 24 heures
+            return Storage::disk('s3')->temporaryUrl($this->logo_s3_url, now()->addHours(24));
+        } catch (\Exception $e) {
+            // En cas d'erreur, retourner l'URL directe
+            return Storage::disk('s3')->url($this->logo_s3_url);
+        }
     }
 }

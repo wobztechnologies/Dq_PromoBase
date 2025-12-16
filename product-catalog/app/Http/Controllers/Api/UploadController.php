@@ -14,9 +14,13 @@ class UploadController extends Controller
         $request->validate([
             'product_id' => 'required|uuid',
             'extension' => 'required|string|max:10',
+            'variant_sku' => 'nullable|string', // SKU de la variante si applicable
         ]);
 
-        $path = 'products/' . $request->product_id . '/images/' . Str::random(20) . '.' . $request->extension;
+        $product = \App\Models\Product::findOrFail($request->product_id);
+        $variantSku = $request->input('variant_sku');
+        
+        $path = $product->generateAssetPath($request->extension, $variantSku);
         
         $url = Storage::disk('s3')->temporaryUrl($path, now()->addMinutes(15));
 

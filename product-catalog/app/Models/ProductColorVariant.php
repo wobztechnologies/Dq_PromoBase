@@ -29,6 +29,26 @@ class ProductColorVariant extends Model
             if (empty($variant->id)) {
                 $variant->id = (string) \Illuminate\Support\Str::uuid();
             }
+            
+            // Si on crée une variante de couleur, supprimer la couleur principale du produit
+            if ($variant->product_id) {
+                $product = \App\Models\Product::find($variant->product_id);
+                if ($product && $product->primary_color_id) {
+                    $product->primary_color_id = null;
+                    $product->saveQuietly();
+                }
+            }
+        });
+        
+        // Après la création, s'assurer que le produit n'a plus de couleur principale
+        static::created(function ($variant) {
+            if ($variant->product_id) {
+                $product = \App\Models\Product::find($variant->product_id);
+                if ($product && $product->primary_color_id) {
+                    $product->primary_color_id = null;
+                    $product->saveQuietly();
+                }
+            }
         });
 
         // Pas de gestion de fichiers S3 au niveau de la variante (géré par ProductModel3D)
@@ -65,5 +85,21 @@ class ProductColorVariant extends Model
     {
         return $this->belongsToMany(ProductModel3D::class, 'product_model_3d_color_variant', 'product_color_variant_id', 'product_model_3d_id')
             ->withTimestamps();
+    }
+
+    /**
+     * Variantes de taille associées à cette variante de couleur
+     */
+    public function sizeVariants(): HasMany
+    {
+        return $this->hasMany(ProductSizeVariant::class);
+    }
+
+    /**
+     * Prix et stock pour cette variante de couleur
+     */
+    public function variantPrices(): HasMany
+    {
+        return $this->hasMany(ProductVariantPrice::class);
     }
 }

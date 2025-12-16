@@ -32,14 +32,23 @@ class PrimaryColorResource extends Resource
 
     public static function form(Form $form): Form
     {
+        $locales = ['fr' => 'Français', 'en' => 'English', 'es' => 'Español', 'de' => 'Deutsch', 'it' => 'Italiano'];
+        
         return $form
             ->schema([
-                Forms\Components\TextInput::make('name')
-                    ->label('Nom')
-                    ->required()
-                    ->maxLength(255)
-                    ->placeholder('Ex: Bleu, Rouge, Vert')
-                    ->helperText('Nom de la couleur principale'),
+                Forms\Components\Tabs::make('translations')
+                    ->tabs(array_map(function ($code, $label) {
+                        return Forms\Components\Tabs\Tab::make($code)
+                            ->label($label)
+                            ->schema([
+                                Forms\Components\TextInput::make("translations.{$code}")
+                                    ->label("Nom ({$label})")
+                                    ->required($code === 'fr') // Français requis par défaut
+                                    ->maxLength(255)
+                                    ->placeholder('Ex: Bleu, Rouge, Vert'),
+                            ]);
+                    }, array_keys($locales), $locales))
+                    ->columnSpanFull(),
                 Forms\Components\ColorPicker::make('hex_code')
                     ->label('Couleur')
                     ->helperText('Sélectionnez la couleur ou saisissez le code hexadécimal'),

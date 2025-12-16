@@ -521,6 +521,31 @@ php artisan scout:import "App\Models\Product"
 php artisan scout:flush "App\Models\Product"
 ```
 
+### Scheduler (Tâches planifiées)
+
+Le scheduler Laravel exécute automatiquement certaines tâches à intervalles réguliers :
+
+- **`meshy:check-tasks`** : Vérifie le statut des générations 3D Meshy toutes les 5 minutes (polling de secours si les webhooks ne fonctionnent pas)
+
+Pour activer le scheduler en production, ajoutez cette ligne dans votre crontab :
+
+```bash
+* * * * * cd /path-to-your-project && php artisan schedule:run >> /dev/null 2>&1
+```
+
+Pour tester localement :
+
+```bash
+# Voir la liste des tâches planifiées
+php artisan schedule:list
+
+# Exécuter le scheduler manuellement
+php artisan schedule:run
+
+# Exécuter une commande spécifique
+php artisan meshy:check-tasks
+```
+
 ## 📁 Structure du projet
 
 ```

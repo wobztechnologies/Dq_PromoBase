@@ -2,7 +2,10 @@
 
 namespace App\Filament\Resources\ProductResource\RelationManagers;
 
-use App\Services\Ai3DService;
+use App\Jobs\ProcessMeshy3DGeneration;
+use App\Jobs\ProcessFal3DGeneration;
+use App\Services\MeshyService;
+use App\Services\FalService;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\RelationManagers\RelationManager;
@@ -28,14 +31,41 @@ class Models3DRelationManager extends RelationManager
                 Forms\Components\FileUpload::make('s3_url')
                     ->label('Modèle 3D (GLB)')
                     ->disk('s3')
-                    ->directory('products/3d-models')
+                    ->directory(function ($record, RelationManager $livewire) {
+                        $product = $livewire->getOwnerRecord();
+                        return $product->getAssetsBasePath();
+                    })
+                    ->getUploadedFileNameForStorageUsing(function (\Livewire\Features\SupportFileUploads\TemporaryUploadedFile $file, RelationManager $livewire) {
+                        $product = $livewire->getOwnerRecord();
+                        $extension = 'glb';
+                        
+                        // Déterminer si le modèle est associé à une variante
+                        $variantSku = null;
+                        // Pour les modèles 3D uploadés manuellement, on ne peut pas déterminer la variante à ce stade
+                        // Le nom sera généré sans variante
+                        
+                        return $product->generateAssetFilename($extension, $variantSku);
+                    })
                     ->visibility('public')
                     ->acceptedFileTypes(['model/gltf-binary', 'application/octet-stream'])
                     ->maxSize(51200)
-                    ->helperText('Téléchargez un modèle 3D au format GLB (max 50MB)')
+                    ->helperText(fn (callable $get) => $get('status') === \App\Models\ProductModel3D::STATUS_REQUESTED 
+                        ? 'Le fichier sera disponible une fois la génération terminée.' 
+                        : 'Téléchargez un modèle 3D au format GLB (max 50MB)')
+                    ->required(fn (callable $get) => $get('status') !== \App\Models\ProductModel3D::STATUS_REQUESTED)
+                    ->deletable(true),
+                Forms\Components\Select::make('status')
+                    ->label('Statut')
+                    ->options([
+                        \App\Models\ProductModel3D::STATUS_REQUESTED => 'Requested',
+                        \App\Models\ProductModel3D::STATUS_ERROR => 'Error',
+                        \App\Models\ProductModel3D::STATUS_IN_REVIEW => 'In Review',
+                        \App\Models\ProductModel3D::STATUS_PUBLISHED => 'Published',
+                    ])
+                    ->default(\App\Models\ProductModel3D::STATUS_PUBLISHED)
                     ->required()
-                    ->deletable(true)
-                    ->downloadable(),
+                    ->disabled(fn ($record) => $record && $record->status === \App\Models\ProductModel3D::STATUS_REQUESTED)
+                    ->helperText('Statut du modèle 3D'),
                 Forms\Components\Toggle::make('is_default')
                     ->label('Modèle par défaut')
                     ->helperText('Cocher pour définir ce modèle comme modèle par défaut du produit. Un seul modèle peut être par défaut.')
@@ -81,11 +111,30 @@ class Models3DRelationManager extends RelationManager
             ->modifyQueryUsing(fn ($query) => $query->with(['colorVariants.primaryColor.parent']))
             ->recordTitleAttribute('s3_url')
             ->columns([
+                Tables\Columns\TextColumn::make('status')
+                    ->label('Statut')
+                    ->badge()
+                    ->color(fn (string $state): string => match ($state) {
+                        \App\Models\ProductModel3D::STATUS_REQUESTED => 'warning',
+                        \App\Models\ProductModel3D::STATUS_ERROR => 'danger',
+                        \App\Models\ProductModel3D::STATUS_IN_REVIEW => 'info',
+                        \App\Models\ProductModel3D::STATUS_PUBLISHED => 'success',
+                        default => 'gray',
+                    })
+                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                        \App\Models\ProductModel3D::STATUS_REQUESTED => 'Requested',
+                        \App\Models\ProductModel3D::STATUS_ERROR => 'Error',
+                        \App\Models\ProductModel3D::STATUS_IN_REVIEW => 'In Review',
+                        \App\Models\ProductModel3D::STATUS_PUBLISHED => 'Published',
+                        default => $state,
+                    })
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('s3_url')
                     ->label('Fichier')
-                    ->getStateUsing(fn ($record) => basename($record->s3_url))
+                    ->getStateUsing(fn ($record) => $record->s3_url ? basename($record->s3_url) : 'N/A')
                     ->searchable()
-                    ->sortable(),
+                    ->sortable()
+                    ->placeholder('Pas encore disponible'),
                 Tables\Columns\ToggleColumn::make('is_default')
                     ->label('Par défaut')
                     ->sortable()
@@ -147,6 +196,15 @@ class Models3DRelationManager extends RelationManager
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                Tables\Filters\SelectFilter::make('status')
+                    ->label('Statut')
+                    ->options([
+                        \App\Models\ProductModel3D::STATUS_REQUESTED => 'Requested',
+                        \App\Models\ProductModel3D::STATUS_ERROR => 'Error',
+                        \App\Models\ProductModel3D::STATUS_IN_REVIEW => 'In Review',
+                        \App\Models\ProductModel3D::STATUS_PUBLISHED => 'Published',
+                    ])
+                    ->multiple(),
                 Tables\Filters\TernaryFilter::make('is_default')
                     ->label('Modèle par défaut')
                     ->placeholder('Tous')
@@ -196,10 +254,22 @@ class Models3DRelationManager extends RelationManager
                             ->reactive()
                             ->afterStateUpdated(fn ($state, callable $set) => $set('selected_images', [])),
                         
+                        Forms\Components\Select::make('ai_model')
+                            ->label('AI Model')
+                            ->options([
+                                'fal' => 'Standard',
+                                'meshy-5' => 'Max',
+                            ])
+                            ->default('fal')
+                            ->required()
+                            ->helperText('Choisissez le modèle AI à utiliser pour la génération'),
+                        
                         Forms\Components\Placeholder::make('info_selection')
                             ->label('')
                             ->content(function (callable $get) {
                                 $selectedImages = $get('selected_images') ?? [];
+                                $aiModel = $get('ai_model') ?? 'fal';
+                                
                                 if (is_string($selectedImages)) {
                                     $decoded = json_decode($selectedImages, true);
                                     $selectedImages = is_array($decoded) ? $decoded : [];
@@ -207,20 +277,44 @@ class Models3DRelationManager extends RelationManager
                                 
                                 $count = is_array($selectedImages) ? count($selectedImages) : 0;
                                 
-                                // Vérifier si une image Front est sélectionnée
+                                // Vérifier les images requises selon le modèle AI
                                 $hasFront = false;
+                                $hasBack = false;
+                                $hasLeftOrRight = false;
+                                
                                 if ($count > 0 && is_array($selectedImages)) {
                                     $images = \App\Models\ProductImage::whereIn('id', $selectedImages)->get();
                                     $hasFront = $images->where('position', 'Front')->isNotEmpty();
+                                    $hasBack = $images->where('position', 'Back')->isNotEmpty();
+                                    $hasLeftOrRight = $images->whereIn('position', ['Left', 'Right'])->isNotEmpty();
                                 }
                                 
-                                $warning = ($count > 0 && !$hasFront) 
-                                    ? '<span class="text-red-600 dark:text-red-400 ml-2 font-medium">⚠️ Au moins une image Front est requise</span>' 
+                                $warnings = [];
+                                
+                                if ($count > 0 && !$hasFront) {
+                                    $warnings[] = '⚠️ Au moins une image Front est requise';
+                                }
+                                
+                                if ($aiModel === 'fal' && $count > 0) {
+                                    if (!$hasBack) {
+                                        $warnings[] = '⚠️ Une image Back est requise pour Standard (fal.ai)';
+                                    }
+                                    if (!$hasLeftOrRight) {
+                                        $warnings[] = '⚠️ Une image Left ou Right est requise pour Standard (fal.ai)';
+                                    }
+                                }
+                                
+                                $warningHtml = !empty($warnings) 
+                                    ? '<span class="text-red-600 dark:text-red-400 ml-2 font-medium">' . implode('<br>', $warnings) . '</span>' 
                                     : '';
+                                
+                                $modelInfo = $aiModel === 'fal' 
+                                    ? ' (Standard - fal.ai: Front, Back, Left/Right requis)'
+                                    : ' (Max - Meshy: 1-4 images)';
                                 
                                 return new \Illuminate\Support\HtmlString(
                                     '<p class="text-sm text-gray-600 dark:text-gray-400">
-                                        Images sélectionnées : <strong>' . $count . '</strong> / 6' . $warning . '
+                                        Images sélectionnées : <strong>' . $count . '</strong> / 6' . $modelInfo . $warningHtml . '
                                     </p>'
                                 );
                             })
@@ -311,6 +405,9 @@ class Models3DRelationManager extends RelationManager
                         // Récupérer les images avec leurs positions
                         $images = \App\Models\ProductImage::whereIn('id', $selectedImages)->get();
                         
+                        // Récupérer le modèle AI choisi
+                        $aiModel = $data['ai_model'] ?? 'fal';
+                        
                         // 1. Vérifier qu'il y a au moins une image Front
                         $hasFront = $images->where('position', 'Front')->isNotEmpty();
                         
@@ -334,57 +431,223 @@ class Models3DRelationManager extends RelationManager
                             return;
                         }
                         
-                        // 3. Préparer les données pour l'API
+                        // 3. Vérifications spécifiques pour fal.ai (Standard)
+                        if ($aiModel === 'fal') {
+                            $hasBack = $images->where('position', 'Back')->isNotEmpty();
+                            $hasLeft = $images->where('position', 'Left')->isNotEmpty();
+                            $hasRight = $images->where('position', 'Right')->isNotEmpty();
+                            
+                            if (!$hasBack) {
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Erreur')
+                                    ->body('Pour le modèle Standard (fal.ai), vous devez sélectionner une image Back.')
+                                    ->danger()
+                                    ->send();
+                                return;
+                            }
+                            
+                            if (!$hasLeft && !$hasRight) {
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Erreur')
+                                    ->body('Pour le modèle Standard (fal.ai), vous devez sélectionner une image Left ou Right.')
+                                    ->danger()
+                                    ->send();
+                                return;
+                            }
+                        }
+                        
+                        // 4. Vérifier qu'il n'y a pas déjà un modèle avec un status bloquant
+                        $product = $livewire->getOwnerRecord();
+                        $blockingStatuses = \App\Models\ProductModel3D::getBlockingStatuses();
+                        $existingModel = \App\Models\ProductModel3D::where('product_id', $product->id)
+                            ->whereIn('status', $blockingStatuses)
+                            ->first();
+                        
+                        if ($existingModel) {
+                            \Filament\Notifications\Notification::make()
+                                ->title('Génération impossible')
+                                ->body('Un modèle 3D existe déjà avec le statut "' . $existingModel->status . '". Vous ne pouvez pas lancer une nouvelle génération.')
+                                ->warning()
+                                ->send();
+                            return;
+                        }
+                        
+                        // 5. Préparer les données pour l'API
                         try {
-                            $product = $livewire->getOwnerRecord();
                             $bucket = config('filesystems.disks.s3.bucket');
                             
-                            // Mapper les positions aux clés attendues par l'API
-                            $positionMapping = [
-                                'Front' => 'front',
-                                'Back' => 'back',
-                                'Side' => 'left', // Par défaut, Side = left
-                                'Top' => 'top',
-                                'Bottom' => 'bottom',
-                                'Part Zoom' => null, // Ignoré
-                            ];
+                            // Récupérer le mode et la variante AVANT de générer le chemin
+                            $mode = $data['mode'] ?? 'general';
+                            $colorVariantId = $data['color_variant_id'] ?? null;
                             
-                            $views = [];
-                            foreach ($images as $image) {
-                                $position = $image->position;
-                                $apiPosition = $positionMapping[$position] ?? null;
-                                
-                                if ($apiPosition) {
-                                    // Construire l'URL S3
-                                    $s3Path = $image->s3_url;
-                                    $s3Url = 's3://' . $bucket . '/' . $s3Path;
-                                    $views[$apiPosition] = $s3Url;
+                            // Générer un chemin de sortie selon la nouvelle structure : /ManufacturerName/SKU/assets/SKU-variant-numero.glb
+                            $variantSku = null;
+                            if ($mode === 'variant' && $colorVariantId) {
+                                $variant = \App\Models\ProductColorVariant::find($colorVariantId);
+                                if ($variant) {
+                                    $variantSku = $variant->sku;
                                 }
                             }
                             
-                            // Générer un chemin de sortie unique
-                            $timestamp = now()->format('Y-m-d_H-i-s');
-                            $uniqueId = Str::random(8);
-                            $outputPath = 's3://' . $bucket . '/models/ai-generated/' . $product->sku . '_' . $timestamp . '_' . $uniqueId . '.glb';
+                            $s3Path = $product->generateAssetPath('glb', $variantSku);
+                            $outputPath = 's3://' . $bucket . '/' . $s3Path;
                             
-                            // Appeler le service AI
-                            $aiService = new Ai3DService();
-                            $result = $aiService->generate3D($views, $outputPath);
+                            // Créer l'enregistrement avec status "Requested" AVANT l'appel API
+                            $model3D = \App\Models\ProductModel3D::create([
+                                'product_id' => $product->id,
+                                's3_url' => null, // Pas encore de fichier
+                                'status' => \App\Models\ProductModel3D::STATUS_REQUESTED,
+                                'is_default' => false,
+                            ]);
                             
-                            if ($result['success']) {
-                                \Filament\Notifications\Notification::make()
-                                    ->title('Génération lancée')
-                                    ->body('La génération du modèle 3D a été lancée avec succès. Job ID: ' . ($result['job_id'] ?? 'N/A'))
-                                    ->success()
-                                    ->send();
+                            // Si mode variant, associer la variante au modèle 3D
+                            if ($mode === 'variant' && $colorVariantId) {
+                                $model3D->colorVariants()->attach($colorVariantId);
+                                \Log::info('Variante associée au modèle 3D', [
+                                    'model_3d_id' => $model3D->id,
+                                    'variant_id' => $colorVariantId,
+                                ]);
+                            }
+                            
+                            // Préparer les URLs publiques des images
+                            $imageUrlsMap = [];
+                            foreach ($images as $image) {
+                                $s3Path = $image->s3_url;
+                                
+                                // Générer une URL temporaire présignée valide 24h
+                                try {
+                                    $publicUrl = Storage::disk('s3')->temporaryUrl($s3Path, now()->addHours(24));
+                                    $imageUrlsMap[$image->position] = $publicUrl;
+                                    \Log::info('URL publique générée', [
+                                        'image_id' => $image->id,
+                                        'position' => $image->position,
+                                        's3_path' => $s3Path,
+                                        'public_url' => $publicUrl,
+                                    ]);
+                                } catch (\Exception $e) {
+                                    // Si échec avec temporaryUrl, essayer l'URL publique directe
+                                    try {
+                                        $publicUrl = Storage::disk('s3')->url($s3Path);
+                                        $imageUrlsMap[$image->position] = $publicUrl;
+                                        \Log::warning('Utilisation de l\'URL publique directe (fallback)', [
+                                            'image_id' => $image->id,
+                                            'position' => $image->position,
+                                            's3_path' => $s3Path,
+                                            'public_url' => $publicUrl,
+                                            'error' => $e->getMessage(),
+                                        ]);
+                                    } catch (\Exception $e2) {
+                                        \Log::error('Impossible de générer une URL publique pour l\'image', [
+                                            'image_id' => $image->id,
+                                            's3_path' => $s3Path,
+                                            'error' => $e2->getMessage(),
+                                        ]);
+                                        throw new \Exception('Impossible de générer une URL publique pour l\'image: ' . $s3Path);
+                                    }
+                                }
+                            }
+                            
+                            // Appeler le service approprié selon le modèle AI choisi
+                            if ($aiModel === 'fal') {
+                                // Utiliser fal.ai avec Front, Back, et Left/Right
+                                $frontUrl = $imageUrlsMap['Front'] ?? null;
+                                $backUrl = $imageUrlsMap['Back'] ?? null;
+                                $sideUrl = $imageUrlsMap['Left'] ?? $imageUrlsMap['Right'] ?? null;
+                                
+                                if (!$frontUrl || !$backUrl || !$sideUrl) {
+                                    throw new \Exception('URLs manquantes pour fal.ai (Front, Back, Left/Right requis)');
+                                }
+                                
+                                $falService = new FalService();
+                                $result = $falService->generate3D($frontUrl, $backUrl, $sideUrl, $outputPath);
+                                
+                                \Log::info('Génération 3D lancée avec fal.ai', [
+                                    'model_3d_id' => $model3D->id,
+                                    'request_id' => $result['request_id'] ?? null,
+                                    'status' => $result['status'] ?? null,
+                                ]);
+                                
+                                if ($result['success']) {
+                                    // Si le modèle est déjà disponible (status completed), télécharger immédiatement
+                                    if ($result['status'] === 'completed' && $result['model_mesh_url']) {
+                                        // Dispatcher le job pour télécharger et traiter le modèle
+                                        ProcessFal3DGeneration::dispatch($model3D->id, $result['model_mesh_url'], $outputPath);
+                                    } else {
+                                        // Sinon, stocker le request_id pour vérification ultérieure
+                                        $model3D->update([
+                                            'meshy_task_id' => $result['request_id'], // Réutiliser ce champ pour fal.ai request_id
+                                        ]);
+                                        
+                                        // Dispatcher le job pour vérifier le statut et télécharger le modèle
+                                        ProcessFal3DGeneration::dispatch($model3D->id, null, $outputPath)
+                                            ->delay(now()->addSeconds(30));
+                                    }
+                                    
+                                    $message = 'La génération du modèle 3D a été lancée avec succès (fal.ai Standard)';
+                                    if ($mode === 'variant' && $colorVariantId) {
+                                        $variant = \App\Models\ProductColorVariant::find($colorVariantId);
+                                        $message .= ' (Variante: ' . ($variant->sku ?? 'N/A') . ')';
+                                    }
+                                    
+                                    \Filament\Notifications\Notification::make()
+                                        ->title('Génération lancée')
+                                        ->body($message)
+                                        ->success()
+                                        ->send();
+                                } else {
+                                    throw new \Exception($result['error'] ?? 'Erreur inconnue lors de la génération fal.ai');
+                                }
                             } else {
-                                \Filament\Notifications\Notification::make()
-                                    ->title('Erreur')
-                                    ->body('Erreur lors de la génération : ' . ($result['error'] ?? 'Erreur inconnue'))
-                                    ->danger()
-                                    ->send();
+                                // Utiliser Meshy (Max - meshy-5)
+                                $imageUrls = array_values($imageUrlsMap);
+                                
+                                \Log::info('URLs préparées pour Meshy', [
+                                    'count' => count($imageUrls),
+                                    'urls' => $imageUrls,
+                                ]);
+                                
+                                $meshyService = new MeshyService();
+                                $result = $meshyService->generate3D($imageUrls, $outputPath, 'meshy-5');
+                                
+                                \Log::info('Génération 3D lancée avec Meshy', [
+                                    'model_3d_id' => $model3D->id,
+                                    'meshy_model' => 'meshy-5',
+                                    'task_id' => $result['task_id'] ?? null,
+                                ]);
+                                
+                                if ($result['success']) {
+                                    // Mettre à jour avec le task_id Meshy
+                                    $model3D->update([
+                                        'meshy_task_id' => $result['task_id'],
+                                    ]);
+                                    
+                                    // Dispatcher le job pour vérifier le statut et télécharger le modèle
+                                    \App\Jobs\ProcessMeshy3DGeneration::dispatch($model3D->id, $result['task_id'], $outputPath)
+                                        ->delay(now()->addSeconds(30));
+                                    
+                                    $message = 'La génération du modèle 3D a été lancée avec succès (Meshy Max). Task ID: ' . $result['task_id'];
+                                    if ($mode === 'variant' && $colorVariantId) {
+                                        $variant = \App\Models\ProductColorVariant::find($colorVariantId);
+                                        $message .= ' (Variante: ' . ($variant->sku ?? 'N/A') . ')';
+                                    }
+                                    
+                                    \Filament\Notifications\Notification::make()
+                                        ->title('Génération lancée')
+                                        ->body($message)
+                                        ->success()
+                                        ->send();
+                                } else {
+                                    throw new \Exception($result['error'] ?? 'Erreur inconnue lors de la génération Meshy');
+                                }
                             }
                         } catch (\Exception $e) {
+                            // En cas d'exception, mettre à jour le status en "Error"
+                            if (isset($model3D)) {
+                                $model3D->update([
+                                    'status' => \App\Models\ProductModel3D::STATUS_ERROR,
+                                ]);
+                            }
+                            
                             \Filament\Notifications\Notification::make()
                                 ->title('Erreur')
                                 ->body('Erreur lors de la génération : ' . $e->getMessage())
@@ -403,7 +666,22 @@ class Models3DRelationManager extends RelationManager
                     ->visible(fn ($record) => $record->s3_url)
                     ->modalHeading(fn ($record) => 'Aperçu du modèle 3D')
                     ->modalContent(function ($record) {
-                        $modelUrl = Storage::disk('s3')->temporaryUrl($record->s3_url, now()->addHours(24));
+                        try {
+                            $modelUrl = Storage::disk('s3')->temporaryUrl($record->s3_url, now()->addHours(24));
+                            \Log::info('URL présignée générée pour la modal 3D', [
+                                'model_id' => $record->id,
+                                's3_path' => $record->s3_url,
+                                'presigned_url' => $modelUrl,
+                            ]);
+                        } catch (\Exception $e) {
+                            \Log::error('Erreur lors de la génération de l\'URL présignée pour la modal 3D', [
+                                'model_id' => $record->id,
+                                's3_path' => $record->s3_url,
+                                'error' => $e->getMessage(),
+                            ]);
+                            $modelUrl = null;
+                        }
+                        
                         $modalId = str_replace('-', '_', $record->id);
                         return view('filament.components.threejs-preview-modal', [
                             'modelUrl' => $modelUrl,
@@ -412,6 +690,28 @@ class Models3DRelationManager extends RelationManager
                     })
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('Fermer'),
+                Tables\Actions\Action::make('download')
+                    ->label('Télécharger')
+                    ->icon('heroicon-o-arrow-down-tray')
+                    ->color('success')
+                    ->visible(fn ($record) => $record->s3_url)
+                    ->action(function ($record) {
+                        if (!$record->s3_url) {
+                            \Filament\Notifications\Notification::make()
+                                ->title('Erreur')
+                                ->body('Aucun fichier disponible pour le téléchargement.')
+                                ->danger()
+                                ->send();
+                            return;
+                        }
+                        
+                        // Générer une URL présignée valide 1 heure
+                        $url = Storage::disk('s3')->temporaryUrl($record->s3_url, now()->addHours(1));
+                        
+                        // Rediriger vers l'URL présignée pour télécharger le fichier
+                        return redirect($url);
+                    })
+                    ->requiresConfirmation(false),
                 Tables\Actions\EditAction::make(),
                 Tables\Actions\DeleteAction::make(),
             ])

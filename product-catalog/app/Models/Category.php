@@ -16,12 +16,14 @@ class Category extends Model
 
     protected $fillable = [
         'name',
+        'translations',
         'parent_id',
         'path',
     ];
 
     protected $casts = [
         'path' => 'string',
+        'translations' => 'array',
     ];
 
     protected static function booted(): void
@@ -91,5 +93,40 @@ class Category extends Model
     public function children(): HasMany
     {
         return $this->hasMany(Category::class, 'parent_id');
+    }
+
+    /**
+     * Obtenir le nom traduit selon la locale courante
+     */
+    public function getNameAttribute($value): string
+    {
+        $locale = app()->getLocale();
+        $translations = $this->translations ?? [];
+        
+        if (!empty($translations) && isset($translations[$locale])) {
+            return $translations[$locale];
+        }
+        
+        // Fallback sur le nom original de la base de données
+        return $value ?? '';
+    }
+
+    /**
+     * Obtenir le nom traduit pour une locale spécifique
+     */
+    public function getTranslatedName(string $locale): ?string
+    {
+        $translations = $this->translations;
+        return $translations[$locale] ?? null;
+    }
+
+    /**
+     * Définir une traduction pour une locale
+     */
+    public function setTranslation(string $locale, string $name): void
+    {
+        $translations = $this->translations ?? [];
+        $translations[$locale] = $name;
+        $this->translations = $translations;
     }
 }

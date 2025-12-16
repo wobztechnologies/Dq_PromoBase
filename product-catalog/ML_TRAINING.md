@@ -7,12 +7,14 @@ Les dossiers suivants ont été créés pour stocker vos images d'entraînement 
 ```
 storage/app/training/images/
 ├── position/
-│   ├── Front/         # Images de produits vus de face
 │   ├── Back/          # Images de produits vus de derrière
-│   ├── Side/          # Images de produits vus de côté (gauche, droite, latéral gauche, latéral droit)
-│   ├── Top/           # Images de produits vus du dessus
 │   ├── Bottom/        # Images de produits vus du dessous
-│   └── PartZoom/      # Images zoomées sur une partie spécifique du produit
+│   ├── Front/         # Images de produits vus de face
+│   ├── PartZoom/      # Images zoomées sur une partie spécifique du produit
+│   ├── Side/          # Images de produits vus de côté (général)
+│   ├── Top/           # Images de produits vus du dessus
+│   ├── Left/          # Images de produits vus de côté gauche
+│   └── Right/         # Images de produits vus de côté droit
 └── background/
     ├── neutral/        # Images avec fond neutre (blanc, gris uni)
     └── non-neutral/   # Images avec fond coloré ou complexe
@@ -80,7 +82,7 @@ Une fois les modèles entraînés, **l'analyse est automatique** lors de l'uploa
 
 1. **Upload d'image** : Quand vous uploadez une image via Filament
 2. **Analyse en arrière-plan** : Le système analyse automatiquement :
-   - **Position** : Front, Back, Side, Top, Bottom, Part Zoom (si le modèle existe)
+   - **Position** : Back, Bottom, Front, PartZoom, Side, Top, Left, Right (si le modèle existe)
    - **Fond neutre** : Détection automatique basée sur la variance des bords
    - **Product only** : Détection si l'image contient seulement le vêtement ou une mise en situation (si le modèle existe)
    - **Couleur dominante** : Extraction de la couleur principale du vêtement (algorithme sans ML)
@@ -132,7 +134,7 @@ php artisan ml:train-background --test-ratio=0.3
 
 ### Réorganisation des dossiers d'entraînement
 
-Si vous avez des images dans les anciens dossiers `Left`, `Right`, `LateralLeft`, ou `LateralRight`, vous pouvez les regrouper automatiquement dans le dossier `Side` :
+Si vous avez des images dans les anciens dossiers `Side`, `LateralLeft`, ou `LateralRight`, vous pouvez les réorganiser automatiquement dans les dossiers `Left` et `Right` :
 
 ```bash
 # Voir ce qui sera fait sans l'exécuter
@@ -142,7 +144,7 @@ php artisan ml:reorganize-training-folders --dry-run
 php artisan ml:reorganize-training-folders
 ```
 
-**Note** : La commande d'entraînement inclut automatiquement les anciens dossiers lors de l'entraînement, donc cette réorganisation est optionnelle mais recommandée pour une meilleure organisation.
+**Note** : La commande d'entraînement inclut automatiquement les anciens dossiers (`Side`, `LateralLeft`, `LateralRight`) lors de l'entraînement pour assurer la compatibilité, donc cette réorganisation est optionnelle mais recommandée pour une meilleure organisation.
 
 ## ⚠️ Notes importantes
 

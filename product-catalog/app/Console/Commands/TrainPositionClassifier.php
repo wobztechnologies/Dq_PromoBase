@@ -31,16 +31,18 @@ class TrainPositionClassifier extends Command
         if (!File::exists($trainingDir)) {
             $this->error("Le dossier d'entraînement n'existe pas: {$trainingDir}");
             $this->info("Créez les dossiers suivants et ajoutez vos images:");
-            $this->info("  - {$trainingDir}/Front");
             $this->info("  - {$trainingDir}/Back");
+            $this->info("  - {$trainingDir}/Bottom");
+            $this->info("  - {$trainingDir}/Front");
+            $this->info("  - {$trainingDir}/PartZoom");
             $this->info("  - {$trainingDir}/Side");
             $this->info("  - {$trainingDir}/Top");
-            $this->info("  - {$trainingDir}/Bottom");
-            $this->info("  - {$trainingDir}/PartZoom");
+            $this->info("  - {$trainingDir}/Left");
+            $this->info("  - {$trainingDir}/Right");
             return 1;
         }
         
-        $positions = ['Front', 'Back', 'Side', 'Top', 'Bottom', 'Part Zoom'];
+        $positions = ['Back', 'Bottom', 'Front', 'Part Zoom', 'Side', 'Top', 'Left', 'Right'];
         
         $samples = [];
         $labels = [];
@@ -55,12 +57,40 @@ class TrainPositionClassifier extends Command
             $folderName = str_replace(' ', '', $position);
             $positionDir = $trainingDir . '/' . $folderName;
             
-            // Pour Side, aussi chercher dans les anciens dossiers (Left, Right, LateralLeft, LateralRight)
+            // Pour Side, Left et Right, aussi chercher dans les anciens dossiers pour compatibilité
             if ($position === 'Side') {
-                $oldFolders = ['Left', 'Right', 'LateralLeft', 'LateralRight'];
+                $oldFolders = ['LateralLeft', 'LateralRight'];
                 $allImages = [];
                 
                 // Chercher dans le dossier Side
+                if (File::exists($positionDir)) {
+                    $allImages = array_merge($allImages, File::glob($positionDir . '/*.{jpg,jpeg,png,webp}', GLOB_BRACE));
+                }
+                
+                // Chercher dans les anciens dossiers latéraux
+                foreach ($oldFolders as $oldFolder) {
+                    $oldDir = $trainingDir . '/' . $oldFolder;
+                    if (File::exists($oldDir)) {
+                        $oldImages = File::glob($oldDir . '/*.{jpg,jpeg,png,webp}', GLOB_BRACE);
+                        $allImages = array_merge($allImages, $oldImages);
+                    }
+                }
+                
+                if (empty($allImages)) {
+                    $this->warn("Aucune image trouvée pour Side (dossiers: Side, LateralLeft, LateralRight)");
+                    continue;
+                }
+                
+                $this->info("Position '{$position}': " . count($allImages) . " images (incluant les anciens dossiers)");
+                $imagesByPosition[$position] = $allImages;
+                continue;
+            }
+            
+            if ($position === 'Left') {
+                $oldFolders = ['LateralLeft'];
+                $allImages = [];
+                
+                // Chercher dans le dossier Left
                 if (File::exists($positionDir)) {
                     $allImages = array_merge($allImages, File::glob($positionDir . '/*.{jpg,jpeg,png,webp}', GLOB_BRACE));
                 }
@@ -75,7 +105,35 @@ class TrainPositionClassifier extends Command
                 }
                 
                 if (empty($allImages)) {
-                    $this->warn("Aucune image trouvée pour Side (dossiers: Side, Left, Right, LateralLeft, LateralRight)");
+                    $this->warn("Aucune image trouvée pour Left (dossiers: Left, LateralLeft)");
+                    continue;
+                }
+                
+                $this->info("Position '{$position}': " . count($allImages) . " images (incluant les anciens dossiers)");
+                $imagesByPosition[$position] = $allImages;
+                continue;
+            }
+            
+            if ($position === 'Right') {
+                $oldFolders = ['LateralRight'];
+                $allImages = [];
+                
+                // Chercher dans le dossier Right
+                if (File::exists($positionDir)) {
+                    $allImages = array_merge($allImages, File::glob($positionDir . '/*.{jpg,jpeg,png,webp}', GLOB_BRACE));
+                }
+                
+                // Chercher dans les anciens dossiers
+                foreach ($oldFolders as $oldFolder) {
+                    $oldDir = $trainingDir . '/' . $oldFolder;
+                    if (File::exists($oldDir)) {
+                        $oldImages = File::glob($oldDir . '/*.{jpg,jpeg,png,webp}', GLOB_BRACE);
+                        $allImages = array_merge($allImages, $oldImages);
+                    }
+                }
+                
+                if (empty($allImages)) {
+                    $this->warn("Aucune image trouvée pour Right (dossiers: Right, LateralRight)");
                     continue;
                 }
                 

@@ -9,4 +9,27 @@ use Filament\Resources\Pages\CreateRecord;
 class CreatePrimaryColor extends CreateRecord
 {
     protected static string $resource = PrimaryColorResource::class;
+
+    protected function mutateFormDataBeforeCreate(array $data): array
+    {
+        // Récupérer les traductions depuis le formulaire
+        $translations = [];
+        $locales = ['fr', 'en', 'es', 'de', 'it'];
+        
+        foreach ($locales as $locale) {
+            if (isset($data['translations'][$locale]) && !empty($data['translations'][$locale])) {
+                $translations[$locale] = $data['translations'][$locale];
+            }
+        }
+        
+        // Définir le nom par défaut (français) si disponible
+        if (isset($translations['fr'])) {
+            $data['name'] = $translations['fr'];
+        }
+        
+        // Sauvegarder les traductions
+        $data['translations'] = !empty($translations) ? $translations : null;
+        
+        return $data;
+    }
 }

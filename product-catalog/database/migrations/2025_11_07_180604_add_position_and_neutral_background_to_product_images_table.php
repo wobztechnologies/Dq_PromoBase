@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('product_images', function (Blueprint $table) {
-            $table->string('position')->nullable()->after('s3_url')->comment('Position de l\'image: Front, Back, Left, Right, Top, Bottom');
+            $table->string('position')->nullable()->after('s3_url')->comment('Position de l\'image: Back, Bottom, Front, PartZoom, Side, Top, Left, Right');
             $table->boolean('neutral_background')->default(false)->after('position');
         });
     }

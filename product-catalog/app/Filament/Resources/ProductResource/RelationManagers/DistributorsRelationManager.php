@@ -48,6 +48,18 @@ class DistributorsRelationManager extends RelationManager
                 Tables\Actions\CreateAction::make(),
             ])
             ->actions([
+                Tables\Actions\Action::make('view_variants')
+                    ->label('Voir les variantes')
+                    ->icon('heroicon-o-eye')
+                    ->color('info')
+                    ->modalHeading(fn ($record) => 'Variantes et prix - ' . $record->distributor->name . ' - ' . $this->getOwnerRecord()->sku)
+                    ->modalWidth('7xl')
+                    ->modalContent(fn ($record) => view('filament.components.product-distributor-variants-modal', [
+                        'product' => $this->getOwnerRecord(),
+                        'distributor' => $record->distributor,
+                    ]))
+                    ->modalSubmitAction(false)
+                    ->modalCancelActionLabel('Fermer'),
                 Tables\Actions\EditAction::make(),
                 Tables\Actions\DeleteAction::make(),
             ])

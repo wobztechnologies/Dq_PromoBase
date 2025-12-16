@@ -56,11 +56,11 @@ class ManufacturerResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\ImageColumn::make('logo_s3_url')
+                Tables\Columns\ImageColumn::make('logo_signed_url')
                     ->label('Logo')
-                    ->disk('s3')
                     ->circular()
                     ->size(50)
+                    ->getStateUsing(fn ($record) => $record->logo_signed_url)
                     ->defaultImageUrl('data:image/svg+xml;base64,' . base64_encode('<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 50 50"><rect width="50" height="50" fill="#e5e7eb"/><text x="25" y="25" font-family="Arial" font-size="20" fill="#9ca3af" text-anchor="middle" dominant-baseline="middle">?</text></svg>'))
                     ->placeholder('Aucun logo'),
                 Tables\Columns\TextColumn::make('name')

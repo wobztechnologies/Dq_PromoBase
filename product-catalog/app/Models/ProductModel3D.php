@@ -20,12 +20,34 @@ class ProductModel3D extends Model
     protected $fillable = [
         'product_id',
         's3_url',
+        'meshy_task_id',
         'is_default',
+        'status',
     ];
 
     protected $casts = [
         'is_default' => 'boolean',
     ];
+    
+    /**
+     * Statuts possibles pour un modèle 3D
+     */
+    public const STATUS_REQUESTED = 'Requested';
+    public const STATUS_ERROR = 'Error';
+    public const STATUS_IN_REVIEW = 'InReview';
+    public const STATUS_PUBLISHED = 'Published';
+    
+    /**
+     * Statuts qui empêchent une nouvelle génération
+     */
+    public static function getBlockingStatuses(): array
+    {
+        return [
+            self::STATUS_REQUESTED,
+            self::STATUS_IN_REVIEW,
+            self::STATUS_PUBLISHED,
+        ];
+    }
 
     protected static function booted(): void
     {
@@ -33,6 +55,12 @@ class ProductModel3D extends Model
         static::creating(function ($model) {
             if (empty($model->id)) {
                 $model->id = (string) \Illuminate\Support\Str::uuid();
+            }
+            
+            // Définir le status par défaut si non défini
+            if (empty($model->status)) {
+                // Si pas de fichier S3, status = Requested, sinon Published
+                $model->status = empty($model->s3_url) ? self::STATUS_REQUESTED : self::STATUS_PUBLISHED;
             }
 
             // Si c'est le premier modèle 3D du produit, le définir comme modèle par défaut

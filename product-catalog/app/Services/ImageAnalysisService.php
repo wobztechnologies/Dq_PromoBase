@@ -58,7 +58,7 @@ class ImageAnalysisService
     }
 
     /**
-     * Détecter la position (Front, Back, Left, Right, Top, Bottom)
+     * Détecter la position (Back, Bottom, Front, PartZoom, Side, Top, Left, Right)
      * Utilise un modèle RubixML si disponible, sinon retourne null
      */
     private function detectPosition($image, string $s3Url): ?string
@@ -79,9 +79,19 @@ class ImageAnalysisService
             $prediction = $model->predict($dataset);
             $predictedPosition = $prediction[0] ?? null;
             
-            // Mapper les anciennes positions vers "Side" si nécessaire
-            if (in_array($predictedPosition, ['Left', 'Right', 'Lateral Left', 'Lateral Right'])) {
-                $predictedPosition = 'Side';
+            // Mapper les anciennes positions si nécessaire pour compatibilité
+            if (in_array($predictedPosition, ['Lateral Left', 'LateralLeft'])) {
+                $predictedPosition = 'Left';
+            }
+            if (in_array($predictedPosition, ['Lateral Right', 'LateralRight'])) {
+                $predictedPosition = 'Right';
+            }
+            
+            // Vérifier que la position prédite est valide
+            $validPositions = ['Back', 'Bottom', 'Front', 'Part Zoom', 'Side', 'Top', 'Left', 'Right'];
+            if (!in_array($predictedPosition, $validPositions)) {
+                Log::warning("Position prédite invalide: {$predictedPosition}, retourne null");
+                return null;
             }
             
             Log::info("Prédiction de position pour {$s3Url}: {$predictedPosition}");

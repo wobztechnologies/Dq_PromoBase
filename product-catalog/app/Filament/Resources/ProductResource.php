@@ -25,52 +25,141 @@ class ProductResource extends Resource
     {
         return $form
             ->schema([
-                Forms\Components\TextInput::make('sku')
-                    ->required()
-                    ->unique(ignoreRecord: true)
-                    ->maxLength(255),
-                Forms\Components\TextInput::make('name')
-                    ->required()
-                    ->maxLength(255),
-                Forms\Components\Select::make('category_id')
-                    ->label('Catégorie')
-                    ->relationship('category', 'name', 
-                        fn ($query) => $query->orderBy('path')
-                    )
-                    ->getOptionLabelFromRecordUsing(function ($record) {
-                        // Calculer le niveau de profondeur basé sur le path ltree
-                        $depth = substr_count($record->path, '.');
-                        
-                        if ($depth === 0) {
-                            // Niveau racine
-                            return '📁 ' . $record->name;
-                        }
-                        
-                        // Construire le préfixe avec des caractères d'arbre
-                        $prefix = '';
-                        $pathParts = explode('.', $record->path);
-                        
-                        // Pour chaque niveau, ajouter l'indentation appropriée
-                        for ($i = 0; $i < $depth; $i++) {
-                            if ($i === $depth - 1) {
-                                // Dernier niveau : branche finale
-                                $prefix .= '└─ ';
-                            } else {
-                                // Niveaux intermédiaires : branche continue
-                                $prefix .= '│  ';
-                            }
-                        }
-                        
-                        return $prefix . $record->name;
-                    })
-                    ->searchable()
-                    ->preload()
-                    ->helperText('Sélectionnez une catégorie dans l\'arbre hiérarchique'),
-                Forms\Components\Select::make('manufacturer_id')
-                    ->label('Manufacturer')
-                    ->relationship('manufacturer', 'name')
-                    ->searchable()
-                    ->preload(),
+                Forms\Components\Section::make('Informations de base')
+                    ->schema([
+                        Forms\Components\TextInput::make('sku')
+                            ->required()
+                            ->unique(ignoreRecord: true)
+                            ->maxLength(255),
+                        Forms\Components\TextInput::make('name')
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\Select::make('category_id')
+                            ->label('Catégorie')
+                            ->relationship('category', 'name', 
+                                fn ($query) => $query->orderBy('path')
+                            )
+                            ->getOptionLabelFromRecordUsing(function ($record) {
+                                // Calculer le niveau de profondeur basé sur le path ltree
+                                $depth = substr_count($record->path, '.');
+                                
+                                if ($depth === 0) {
+                                    // Niveau racine
+                                    return '📁 ' . $record->name;
+                                }
+                                
+                                // Construire le préfixe avec des caractères d'arbre
+                                $prefix = '';
+                                $pathParts = explode('.', $record->path);
+                                
+                                // Pour chaque niveau, ajouter l'indentation appropriée
+                                for ($i = 0; $i < $depth; $i++) {
+                                    if ($i === $depth - 1) {
+                                        // Dernier niveau : branche finale
+                                        $prefix .= '└─ ';
+                                    } else {
+                                        // Niveaux intermédiaires : branche continue
+                                        $prefix .= '│  ';
+                                    }
+                                }
+                                
+                                return $prefix . $record->name;
+                            })
+                            ->searchable()
+                            ->preload()
+                            ->helperText('Sélectionnez une catégorie dans l\'arbre hiérarchique'),
+                        Forms\Components\Select::make('manufacturer_id')
+                            ->label('Manufacturer')
+                            ->relationship('manufacturer', 'name')
+                            ->searchable()
+                            ->preload(),
+                    ])
+                    ->columns(2),
+                Forms\Components\Section::make('Type de produit')
+                    ->schema([
+                        Forms\Components\Radio::make('product_type')
+                            ->label('Type de produit')
+                            ->options([
+                                'simple' => 'Produit simple (avec couleur principale)',
+                                'variant' => 'Produit variant (avec variantes de couleur)',
+                            ])
+                            ->default('simple')
+                            ->reactive()
+                            ->required()
+                            ->helperText('Choisissez le type de produit : simple (une seule couleur principale) ou variant (plusieurs variantes de couleur)')
+                            ->visible(fn ($record) => !$record) // Visible uniquement lors de la création
+                            ->dehydrated(false), // Ne pas sauvegarder ce champ dans la base de données
+                        Forms\Components\Select::make('primary_color_id')
+                            ->label('Couleur principale')
+                            ->relationship('primaryColor', 'name', 
+                                fn ($query) => $query->with('parent')->orderBy('parent_id')->orderBy('name')
+                            )
+                            ->getOptionLabelFromRecordUsing(fn ($record) => $record->full_name)
+                            ->searchable(['name', 'parent.name'])
+                            ->preload()
+                            ->helperText('Définir une couleur principale pour un produit simple. Un produit est soit simple (avec couleur principale, pas de variantes de couleur), soit variant (avec variantes de couleur, pas de couleur principale).')
+                            ->visible(function ($record, callable $get) {
+                                // Lors de la création : visible si le toggle est sur "simple"
+                                if (!$record) {
+                                    return $get('product_type') === 'simple';
+                                }
+                                // Lors de l'édition : visible si le produit n'a pas de variantes de couleur
+                                return $record->colorVariants()->count() === 0;
+                            })
+                            ->disabled(fn ($record) => $record && $record->colorVariants()->count() > 0)
+                            ->required(function ($record, callable $get) {
+                                // Requis uniquement lors de la création si le type est "simple"
+                                if (!$record) {
+                                    return $get('product_type') === 'simple';
+                                }
+                                return false; // Pas requis lors de l'édition (peut être modifié après)
+                            })
+                            ->afterStateUpdated(function ($state, $livewire) {
+                                // Si une couleur principale est définie, s'assurer qu'il n'y a pas de variantes de couleur
+                                if ($state && $livewire->record) {
+                                    $product = $livewire->record;
+                                    if ($product->colorVariants()->count() > 0) {
+                                        \Filament\Notifications\Notification::make()
+                                            ->title('Erreur')
+                                            ->body('Un produit ne peut pas avoir à la fois une couleur principale et des variantes de couleur.')
+                                            ->danger()
+                                            ->send();
+                                        return null;
+                                    }
+                                }
+                            }),
+                        Forms\Components\Placeholder::make('variant_info')
+                            ->label('')
+                            ->content(function (callable $get) {
+                                if ($get('product_type') === 'variant') {
+                                    return new \Illuminate\Support\HtmlString(
+                                        '<div class="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                                            <p class="text-sm text-blue-800 dark:text-blue-200 font-medium mb-2">
+                                                📋 Produit variant sélectionné
+                                            </p>
+                                            <p class="text-sm text-blue-700 dark:text-blue-300">
+                                                Après la création du produit, vous pourrez ajouter des variantes de couleur dans l\'onglet "Variantes de couleurs". 
+                                                Chaque variante de couleur pourra ensuite avoir ses propres variantes de taille.
+                                            </p>
+                                        </div>'
+                                    );
+                                }
+                                return new \Illuminate\Support\HtmlString(
+                                    '<div class="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                                        <p class="text-sm text-green-800 dark:text-green-200 font-medium mb-2">
+                                            ✅ Produit simple sélectionné
+                                        </p>
+                                        <p class="text-sm text-green-700 dark:text-green-300">
+                                            Définissez une couleur principale ci-dessus. Vous pourrez ensuite ajouter des variantes de taille dans l\'onglet "Variantes de taille".
+                                        </p>
+                                    </div>'
+                                );
+                            })
+                            ->visible(fn ($record) => !$record) // Visible uniquement lors de la création
+                            ->reactive(),
+                    ])
+                    ->collapsible()
+                    ->collapsed(false),
             ]);
     }
 
@@ -167,7 +256,9 @@ class ProductResource extends Resource
     {
         return [
             RelationManagers\ColorVariantsRelationManager::class,
+            RelationManagers\SizeVariantsRelationManager::class, // Visible uniquement pour les produits simples
             RelationManagers\DistributorsRelationManager::class,
+            RelationManagers\StockAndPricesRelationManager::class,
             RelationManagers\ImagesRelationManager::class,
             RelationManagers\Models3DRelationManager::class,
         ];

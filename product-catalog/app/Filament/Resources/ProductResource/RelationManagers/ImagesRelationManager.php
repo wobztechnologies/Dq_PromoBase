@@ -26,7 +26,18 @@ class ImagesRelationManager extends RelationManager
                 Forms\Components\FileUpload::make('s3_url')
                     ->label('Image')
                     ->disk('s3')
-                    ->directory('products/images')
+                    ->directory(function ($record, RelationManager $livewire) {
+                        $product = $livewire->getOwnerRecord();
+                        return $product->getAssetsBasePath();
+                    })
+                    ->getUploadedFileNameForStorageUsing(function (\Livewire\Features\SupportFileUploads\TemporaryUploadedFile $file, RelationManager $livewire) {
+                        $product = $livewire->getOwnerRecord();
+                        $extension = $file->getClientOriginalExtension();
+                        
+                        // Pour une nouvelle image, on ne peut pas encore déterminer la variante
+                        // Le nom sera généré sans variante, et pourra être renommé après association
+                        return $product->generateAssetFilename($extension);
+                    })
                     ->visibility('public')
                     ->image()
                     ->imageEditor()
@@ -55,12 +66,14 @@ class ImagesRelationManager extends RelationManager
                 Forms\Components\Select::make('position')
                     ->label('Position')
                     ->options([
-                        'Front' => 'Front',
                         'Back' => 'Back',
+                        'Bottom' => 'Bottom',
+                        'Front' => 'Front',
+                        'Part Zoom' => 'Part Zoom',
                         'Side' => 'Side',
                         'Top' => 'Top',
-                        'Bottom' => 'Bottom',
-                        'Part Zoom' => 'Part Zoom',
+                        'Left' => 'Left',
+                        'Right' => 'Right',
                     ])
                     ->placeholder('Sélectionnez la position de l\'image')
                     ->searchable()
@@ -132,12 +145,14 @@ class ImagesRelationManager extends RelationManager
                 Tables\Columns\SelectColumn::make('position')
                     ->label('Position')
                     ->options([
-                        'Front' => 'Front',
                         'Back' => 'Back',
+                        'Bottom' => 'Bottom',
+                        'Front' => 'Front',
+                        'Part Zoom' => 'Part Zoom',
                         'Side' => 'Side',
                         'Top' => 'Top',
-                        'Bottom' => 'Bottom',
-                        'Part Zoom' => 'Part Zoom',
+                        'Left' => 'Left',
+                        'Right' => 'Right',
                     ])
                     ->searchable()
                     ->sortable()
@@ -257,12 +272,14 @@ class ImagesRelationManager extends RelationManager
                 Tables\Filters\SelectFilter::make('position')
                     ->label('Position')
                     ->options([
-                        'Front' => 'Front',
                         'Back' => 'Back',
+                        'Bottom' => 'Bottom',
+                        'Front' => 'Front',
+                        'Part Zoom' => 'Part Zoom',
                         'Side' => 'Side',
                         'Top' => 'Top',
-                        'Bottom' => 'Bottom',
-                        'Part Zoom' => 'Part Zoom',
+                        'Left' => 'Left',
+                        'Right' => 'Right',
                     ])
                     ->multiple(),
                 Tables\Filters\TernaryFilter::make('neutral_background')
