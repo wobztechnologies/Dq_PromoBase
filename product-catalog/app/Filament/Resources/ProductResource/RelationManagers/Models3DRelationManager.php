@@ -257,7 +257,8 @@ class Models3DRelationManager extends RelationManager
                         Forms\Components\Select::make('ai_model')
                             ->label('AI Model')
                             ->options([
-                                'fal' => 'Standard',
+                                'fal' => 'Standard Multi image',
+                                'fal-mono' => 'Standard mono image',
                                 'meshy-5' => 'Max',
                             ])
                             ->default('fal')
@@ -297,10 +298,10 @@ class Models3DRelationManager extends RelationManager
                                 
                                 if ($aiModel === 'fal' && $count > 0) {
                                     if (!$hasBack) {
-                                        $warnings[] = '⚠️ Une image Back est requise pour Standard (fal.ai)';
+                                        $warnings[] = '⚠️ Une image Back est requise pour Standard Multi image';
                                     }
                                     if (!$hasLeftOrRight) {
-                                        $warnings[] = '⚠️ Une image Left ou Right est requise pour Standard (fal.ai)';
+                                        $warnings[] = '⚠️ Une image Left ou Right est requise pour Standard Multi image';
                                     }
                                 }
                                 
@@ -308,9 +309,11 @@ class Models3DRelationManager extends RelationManager
                                     ? '<span class="text-red-600 dark:text-red-400 ml-2 font-medium">' . implode('<br>', $warnings) . '</span>' 
                                     : '';
                                 
-                                $modelInfo = $aiModel === 'fal' 
-                                    ? ' (Standard - fal.ai: Front, Back, Left/Right requis)'
-                                    : ' (Max - Meshy: 1-4 images)';
+                                $modelInfo = match($aiModel) {
+                                    'fal' => ' (Standard Multi image: Front, Back, Left/Right requis)',
+                                    'fal-mono' => ' (Standard mono image: Front requis uniquement)',
+                                    default => ' (Max: 1-4 images)',
+                                };
                                 
                                 return new \Illuminate\Support\HtmlString(
                                     '<p class="text-sm text-gray-600 dark:text-gray-400">
@@ -431,7 +434,7 @@ class Models3DRelationManager extends RelationManager
                             return;
                         }
                         
-                        // 3. Vérifications spécifiques pour fal.ai (Standard)
+                        // 3. Vérifications spécifiques pour Standard Multi image
                         if ($aiModel === 'fal') {
                             $hasBack = $images->where('position', 'Back')->isNotEmpty();
                             $hasLeft = $images->where('position', 'Left')->isNotEmpty();
@@ -440,7 +443,7 @@ class Models3DRelationManager extends RelationManager
                             if (!$hasBack) {
                                 \Filament\Notifications\Notification::make()
                                     ->title('Erreur')
-                                    ->body('Pour le modèle Standard (fal.ai), vous devez sélectionner une image Back.')
+                                    ->body('Pour le modèle Standard Multi image, vous devez sélectionner une image Back.')
                                     ->danger()
                                     ->send();
                                 return;
@@ -449,11 +452,16 @@ class Models3DRelationManager extends RelationManager
                             if (!$hasLeft && !$hasRight) {
                                 \Filament\Notifications\Notification::make()
                                     ->title('Erreur')
-                                    ->body('Pour le modèle Standard (fal.ai), vous devez sélectionner une image Left ou Right.')
+                                    ->body('Pour le modèle Standard Multi image, vous devez sélectionner une image Left ou Right.')
                                     ->danger()
                                     ->send();
                                 return;
                             }
+                        }
+                        
+                        // Vérification pour fal-mono (Standard mono image) - seulement Front requis
+                        if ($aiModel === 'fal-mono') {
+                            // Pas de vérification supplémentaire, Front est déjà vérifié plus haut
                         }
                         
                         // 4. Vérifier qu'il n'y a pas déjà un modèle avec un status bloquant
@@ -549,13 +557,13 @@ class Models3DRelationManager extends RelationManager
                             
                             // Appeler le service approprié selon le modèle AI choisi
                             if ($aiModel === 'fal') {
-                                // Utiliser fal.ai avec Front, Back, et Left/Right
+                                // Utiliser Standard Multi image avec Front, Back, et Left/Right
                                 $frontUrl = $imageUrlsMap['Front'] ?? null;
                                 $backUrl = $imageUrlsMap['Back'] ?? null;
                                 $sideUrl = $imageUrlsMap['Left'] ?? $imageUrlsMap['Right'] ?? null;
                                 
                                 if (!$frontUrl || !$backUrl || !$sideUrl) {
-                                    throw new \Exception('URLs manquantes pour fal.ai (Front, Back, Left/Right requis)');
+                                    throw new \Exception('URLs manquantes (Front, Back, Left/Right requis)');
                                 }
                                 
                                 $falService = new FalService();
@@ -583,7 +591,7 @@ class Models3DRelationManager extends RelationManager
                                             ->delay(now()->addSeconds(30));
                                     }
                                     
-                                    $message = 'La génération du modèle 3D a été lancée avec succès (fal.ai Standard)';
+                                    $message = 'La génération du modèle 3D a été lancée avec succès (Standard Multi image)';
                                     if ($mode === 'variant' && $colorVariantId) {
                                         $variant = \App\Models\ProductColorVariant::find($colorVariantId);
                                         $message .= ' (Variante: ' . ($variant->sku ?? 'N/A') . ')';
@@ -595,10 +603,57 @@ class Models3DRelationManager extends RelationManager
                                         ->success()
                                         ->send();
                                 } else {
-                                    throw new \Exception($result['error'] ?? 'Erreur inconnue lors de la génération fal.ai');
+                                    throw new \Exception($result['error'] ?? 'Erreur inconnue lors de la génération');
+                                }
+                            } elseif ($aiModel === 'fal-mono') {
+                                // Utiliser Standard mono image avec une seule image Front
+                                $frontUrl = $imageUrlsMap['Front'] ?? null;
+                                
+                                if (!$frontUrl) {
+                                    throw new \Exception('URL manquante (Front requis)');
+                                }
+                                
+                                $falService = new FalService();
+                                $result = $falService->generate3DFromSingleImage($frontUrl, $outputPath);
+                                
+                                \Log::info('Génération 3D lancée avec fal.ai (mono)', [
+                                    'model_3d_id' => $model3D->id,
+                                    'request_id' => $result['request_id'] ?? null,
+                                    'status' => $result['status'] ?? null,
+                                ]);
+                                
+                                if ($result['success']) {
+                                    // Si le modèle est déjà disponible (status completed), télécharger immédiatement
+                                    if ($result['status'] === 'completed' && $result['model_mesh_url']) {
+                                        // Dispatcher le job pour télécharger et traiter le modèle
+                                        ProcessFal3DGeneration::dispatch($model3D->id, $result['model_mesh_url'], $outputPath);
+                                    } else {
+                                        // Sinon, stocker le request_id pour vérification ultérieure
+                                        $model3D->update([
+                                            'meshy_task_id' => $result['request_id'], // Réutiliser ce champ pour fal.ai request_id
+                                        ]);
+                                        
+                                        // Dispatcher le job pour vérifier le statut et télécharger le modèle
+                                        ProcessFal3DGeneration::dispatch($model3D->id, null, $outputPath)
+                                            ->delay(now()->addSeconds(30));
+                                    }
+                                    
+                                    $message = 'La génération du modèle 3D a été lancée avec succès (Standard mono image)';
+                                    if ($mode === 'variant' && $colorVariantId) {
+                                        $variant = \App\Models\ProductColorVariant::find($colorVariantId);
+                                        $message .= ' (Variante: ' . ($variant->sku ?? 'N/A') . ')';
+                                    }
+                                    
+                                    \Filament\Notifications\Notification::make()
+                                        ->title('Génération lancée')
+                                        ->body($message)
+                                        ->success()
+                                        ->send();
+                                } else {
+                                    throw new \Exception($result['error'] ?? 'Erreur inconnue lors de la génération mono');
                                 }
                             } else {
-                                // Utiliser Meshy (Max - meshy-5)
+                                // Utiliser Max (meshy-5)
                                 $imageUrls = array_values($imageUrlsMap);
                                 
                                 \Log::info('URLs préparées pour Meshy', [
@@ -616,7 +671,7 @@ class Models3DRelationManager extends RelationManager
                                 ]);
                                 
                                 if ($result['success']) {
-                                    // Mettre à jour avec le task_id Meshy
+                                    // Mettre à jour avec le task_id
                                     $model3D->update([
                                         'meshy_task_id' => $result['task_id'],
                                     ]);
@@ -625,7 +680,7 @@ class Models3DRelationManager extends RelationManager
                                     \App\Jobs\ProcessMeshy3DGeneration::dispatch($model3D->id, $result['task_id'], $outputPath)
                                         ->delay(now()->addSeconds(30));
                                     
-                                    $message = 'La génération du modèle 3D a été lancée avec succès (Meshy Max). Task ID: ' . $result['task_id'];
+                                    $message = 'La génération du modèle 3D a été lancée avec succès (Max). Task ID: ' . $result['task_id'];
                                     if ($mode === 'variant' && $colorVariantId) {
                                         $variant = \App\Models\ProductColorVariant::find($colorVariantId);
                                         $message .= ' (Variante: ' . ($variant->sku ?? 'N/A') . ')';
@@ -637,7 +692,7 @@ class Models3DRelationManager extends RelationManager
                                         ->success()
                                         ->send();
                                 } else {
-                                    throw new \Exception($result['error'] ?? 'Erreur inconnue lors de la génération Meshy');
+                                    throw new \Exception($result['error'] ?? 'Erreur inconnue lors de la génération en mode Max');
                                 }
                             }
                         } catch (\Exception $e) {

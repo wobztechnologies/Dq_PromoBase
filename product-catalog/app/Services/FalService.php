@@ -115,6 +115,97 @@ class FalService
     }
 
     /**
+     * Générer un modèle 3D à partir d'une seule image (Front)
+     * Utilise le modèle hunyuan3d/v2/mini/turbo
+     * 
+     * @param string $imageUrl URL de l'image Front
+     * @param string $outputPath Chemin S3 pour sauvegarder le modèle généré (non utilisé par fal.ai directement)
+     * @return array Réponse avec success, request_id, et status
+     */
+    public function generate3DFromSingleImage(string $imageUrl, string $outputPath): array
+    {
+        if (!$this->apiKey) {
+            Log::error('Fal Service - API key non configurée');
+            throw new \Exception('Configuration fal.ai incomplète. Veuillez configurer la clé API dans les paramètres.');
+        }
+
+        try {
+            // Utiliser l'API de queue de fal.ai
+            // Format: https://queue.fal.run/fal-ai/hunyuan3d/v2/mini/turbo
+            $url = $this->baseUrl . '/fal-ai/hunyuan3d/v2/mini/turbo';
+            
+            // Le payload pour l'API Queue doit être directement dans le body
+            $payload = [
+                'image_url' => $imageUrl,
+            ];
+
+            Log::info('Fal Service - Requête Image to 3D (mono)', [
+                'url' => $url,
+                'image_url' => $imageUrl,
+            ]);
+
+            $response = Http::timeout(60)
+                ->withHeaders([
+                    'Authorization' => 'Key ' . $this->apiKey,
+                    'Content-Type' => 'application/json',
+                ])
+                ->post($url, $payload);
+            
+            // Log de la réponse pour debug
+            Log::info('Fal Service - Réponse de fal.ai (mono)', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
+            if (!$response->successful()) {
+                Log::error('Fal Service - Échec Image to 3D (mono)', [
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+                throw new \Exception('Échec de la génération du modèle 3D. Status: ' . $response->status() . ' - ' . $response->body());
+            }
+
+            $data = $response->json();
+            
+            // fal.ai Queue API retourne request_id et des URLs pour status/response
+            $requestId = $data['request_id'] ?? null;
+            $statusUrl = $data['status_url'] ?? null;
+            $responseUrl = $data['response_url'] ?? null;
+            
+            if (!$requestId) {
+                Log::error('Fal Service - Request ID manquant dans la réponse (mono)', [
+                    'response' => $data,
+                ]);
+                throw new \Exception('Request ID non reçu du serveur fal.ai.');
+            }
+
+            Log::info('Fal Service - Génération Image to 3D (mono) lancée', [
+                'request_id' => $requestId,
+                'status_url' => $statusUrl,
+                'response_url' => $responseUrl,
+                'output_path' => $outputPath,
+            ]);
+
+            return [
+                'success' => true,
+                'request_id' => $requestId,
+                'status_url' => $statusUrl,
+                'response_url' => $responseUrl,
+                'status' => 'pending',
+                'model_mesh_url' => null, // Sera récupéré via getRequestStatus
+                'output_path' => $outputPath,
+                'data' => $data,
+            ];
+        } catch (\Exception $e) {
+            Log::error('Fal Service - Erreur Image to 3D (mono)', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
      * Vérifier le statut d'une requête fal.ai
      */
     public function getRequestStatus(string $requestId): array
