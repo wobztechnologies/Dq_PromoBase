@@ -69,7 +69,8 @@ class ColorVariantsRelationManager extends RelationManager
                             return [];
                         }
                         
-                        $query = \App\Models\PrimaryColor::where('parent_id', $parentId)
+                        $query = \App\Models\PrimaryColor::with('manufacturer')
+                            ->where('parent_id', $parentId)
                             ->whereNotNull('manufacturer_id');
                         
                         if ($manufacturerId) {
@@ -87,6 +88,17 @@ class ColorVariantsRelationManager extends RelationManager
                     ->searchable()
                     ->preload()
                     ->reactive()
+                    ->afterStateUpdated(function ($state, callable $set) use ($product) {
+                        if ($state) {
+                            $color = \App\Models\PrimaryColor::find($state);
+                            if ($color) {
+                                // Utiliser color_sku_code si disponible, sinon les 3 premières lettres du nom
+                                $colorCode = $color->color_sku_code ?: strtoupper(substr(preg_replace('/[^a-zA-Z0-9]/', '', $color->name), 0, 3));
+                                $suggestedSku = $product->sku . '-' . $colorCode;
+                                $set('sku', $suggestedSku);
+                            }
+                        }
+                    })
                     ->visible(function ($get, $record) {
                         $parentId = $get('primary_color_parent_id');
                         if (!$parentId && $record && $record->primaryColor && $record->primaryColor->parent_id) {
@@ -101,8 +113,8 @@ class ColorVariantsRelationManager extends RelationManager
                     ->required()
                     ->maxLength(255)
                     ->unique(\App\Models\ProductColorVariant::class, 'sku', ignoreRecord: true)
-                    ->placeholder('Ex: PROD-000001-ROU')
-                    ->helperText('SKU unique pour cette variante de couleur'),
+                    ->placeholder('Ex: PROD-001-BLK')
+                    ->helperText('SKU auto-généré au format : SKU produit - Code couleur. Modifiable si besoin.'),
             ]);
     }
 
@@ -421,7 +433,8 @@ class ColorVariantsRelationManager extends RelationManager
                                     return [];
                                 }
                                 
-                                $query = \App\Models\PrimaryColor::where('parent_id', $parentId)
+                                $query = \App\Models\PrimaryColor::with('manufacturer')
+                                    ->where('parent_id', $parentId)
                                     ->whereNotNull('manufacturer_id');
                                 
                                 if ($manufacturerId) {

@@ -32,6 +32,13 @@ class Product extends Model
         // Désactiver l'indexation automatique de Scout pour éviter les erreurs si Meilisearch n'est pas disponible
         static::disableSearchSyncing();
         
+        // Générer un UUID lors de la création
+        static::creating(function ($product) {
+            if (empty($product->id)) {
+                $product->id = (string) \Illuminate\Support\Str::uuid();
+            }
+        });
+        
         // Validation : un produit ne peut pas avoir à la fois une couleur fabricant et des variantes de couleur
         static::saving(function ($product) {
             // Si le produit a une couleur fabricant, il ne doit pas avoir de variantes de couleur

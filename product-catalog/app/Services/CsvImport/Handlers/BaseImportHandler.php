@@ -43,7 +43,7 @@ abstract class BaseImportHandler implements ImportHandlerInterface
     /**
      * Traiter une ligne du CSV
      */
-    abstract protected function processRow(CsvImport $import, array $row, int $rowNumber): void;
+    abstract public function processRow(CsvImport $import, array $row, int $rowNumber): bool;
 
     /**
      * Traiter l'import

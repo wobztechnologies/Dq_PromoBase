@@ -1,0 +1,1253 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "title": "Product Catalog External API",
+        "description": "API externe pour l'intégration du catalogue produits dans d'autres outils.",
+        "contact": {
+            "email": "support@example.com"
+        },
+        "version": "1.0.0"
+    },
+    "servers": [
+        {
+            "url": "/api/ext",
+            "description": "API Externe"
+        }
+    ],
+    "paths": {
+        "/login": {
+            "post": {
+                "tags": [
+                    "Authentification"
+                ],
+                "summary": "Authentification JWT",
+                "description": "Authentifie un utilisateur API et retourne un token JWT",
+                "operationId": "login",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email",
+                                    "password"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "api@example.com"
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "format": "password",
+                                        "example": "password123"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Authentification réussie",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "access_token": {
+                                            "type": "string"
+                                        },
+                                        "token_type": {
+                                            "type": "string",
+                                            "example": "bearer"
+                                        },
+                                        "expires_in": {
+                                            "type": "integer",
+                                            "example": 3600
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Identifiants invalides"
+                    },
+                    "403": {
+                        "description": "Compte désactivé"
+                    }
+                }
+            }
+        },
+        "/refresh": {
+            "post": {
+                "tags": [
+                    "Authentification"
+                ],
+                "summary": "Rafraîchir le token JWT",
+                "description": "Rafraîchit le token JWT actuel",
+                "operationId": "refresh",
+                "responses": {
+                    "200": {
+                        "description": "Token rafraîchi",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "access_token": {
+                                            "type": "string"
+                                        },
+                                        "token_type": {
+                                            "type": "string",
+                                            "example": "bearer"
+                                        },
+                                        "expires_in": {
+                                            "type": "integer",
+                                            "example": 3600
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token invalide"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/logout": {
+            "post": {
+                "tags": [
+                    "Authentification"
+                ],
+                "summary": "Déconnexion",
+                "description": "Invalide le token JWT actuel",
+                "operationId": "logout",
+                "responses": {
+                    "200": {
+                        "description": "Déconnexion réussie"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/me": {
+            "get": {
+                "tags": [
+                    "Authentification"
+                ],
+                "summary": "Informations utilisateur",
+                "description": "Retourne les informations de l'utilisateur API connecté",
+                "operationId": "me",
+                "responses": {
+                    "200": {
+                        "description": "Informations utilisateur",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "id": {
+                                            "type": "integer"
+                                        },
+                                        "name": {
+                                            "type": "string"
+                                        },
+                                        "email": {
+                                            "type": "string"
+                                        },
+                                        "is_active": {
+                                            "type": "boolean"
+                                        },
+                                        "last_used_at": {
+                                            "type": "string",
+                                            "format": "date-time"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/categories": {
+            "get": {
+                "tags": [
+                    "Catégories"
+                ],
+                "summary": "Liste des catégories",
+                "description": "Retourne la liste des catégories structurée hiérarchiquement et ordonnée",
+                "operationId": "getCategories",
+                "parameters": [
+                    {
+                        "name": "flat",
+                        "in": "query",
+                        "description": "Si true, retourne une liste plate au lieu d'une structure hiérarchique",
+                        "schema": {
+                            "type": "boolean",
+                            "default": false
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Liste des catégories",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "properties": {
+                                                    "uuid": {
+                                                        "type": "string"
+                                                    },
+                                                    "name": {
+                                                        "type": "string"
+                                                    },
+                                                    "translations": {
+                                                        "properties": {
+                                                            "fr": {
+                                                                "type": "string",
+                                                                "nullable": true
+                                                            },
+                                                            "en": {
+                                                                "type": "string",
+                                                                "nullable": true
+                                                            },
+                                                            "de": {
+                                                                "type": "string",
+                                                                "nullable": true
+                                                            },
+                                                            "es": {
+                                                                "type": "string",
+                                                                "nullable": true
+                                                            },
+                                                            "it": {
+                                                                "type": "string",
+                                                                "nullable": true
+                                                            },
+                                                            "nl": {
+                                                                "type": "string",
+                                                                "nullable": true
+                                                            },
+                                                            "pt": {
+                                                                "type": "string",
+                                                                "nullable": true
+                                                            },
+                                                            "pl": {
+                                                                "type": "string",
+                                                                "nullable": true
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    },
+                                                    "path": {
+                                                        "type": "string"
+                                                    },
+                                                    "level": {
+                                                        "type": "integer"
+                                                    },
+                                                    "order": {
+                                                        "type": "integer"
+                                                    },
+                                                    "image_url": {
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "parent_uuid": {
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "children": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "object"
+                                                        }
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Non authentifié"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/manufacturerscolors": {
+            "get": {
+                "tags": [
+                    "Couleurs"
+                ],
+                "summary": "Liste des couleurs fabricants",
+                "description": "Retourne la liste des couleurs fabricants avec leur couleur principale associée",
+                "operationId": "getManufacturerColors",
+                "parameters": [
+                    {
+                        "name": "manufacturer",
+                        "in": "query",
+                        "description": "Filtrer par UUID de fabricant",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "primary_color",
+                        "in": "query",
+                        "description": "Filtrer par UUID de couleur principale",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Liste des couleurs fabricants",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "properties": {
+                                                    "uuid": {
+                                                        "type": "string"
+                                                    },
+                                                    "name": {
+                                                        "type": "string"
+                                                    },
+                                                    "hex_code": {
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "color_sku_code": {
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "rgb": {
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "pantone_c": {
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "pantone_tcx": {
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "pms": {
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "primary_color": {
+                                                        "properties": {
+                                                            "uuid": {
+                                                                "type": "string"
+                                                            },
+                                                            "name": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    },
+                                                    "manufacturer": {
+                                                        "properties": {
+                                                            "uuid": {
+                                                                "type": "string"
+                                                            },
+                                                            "name": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "type": "object",
+                                                        "nullable": true
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Non authentifié"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/manufacturers": {
+            "get": {
+                "tags": [
+                    "Fabricants"
+                ],
+                "summary": "Liste des fabricants",
+                "description": "Retourne la liste des fabricants avec leurs UUID",
+                "operationId": "getManufacturers",
+                "responses": {
+                    "200": {
+                        "description": "Liste des fabricants",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "properties": {
+                                                    "uuid": {
+                                                        "type": "string"
+                                                    },
+                                                    "name": {
+                                                        "type": "string"
+                                                    },
+                                                    "logo_url": {
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Non authentifié"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/primarycolors": {
+            "get": {
+                "tags": [
+                    "Couleurs"
+                ],
+                "summary": "Liste des couleurs principales",
+                "description": "Retourne la liste des couleurs principales avec leurs couleurs fabricants associées",
+                "operationId": "getPrimaryColors",
+                "responses": {
+                    "200": {
+                        "description": "Liste des couleurs principales",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "properties": {
+                                                    "uuid": {
+                                                        "type": "string"
+                                                    },
+                                                    "name": {
+                                                        "type": "string"
+                                                    },
+                                                    "hex_code": {
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "manufacturer_colors": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "properties": {
+                                                                "uuid": {
+                                                                    "type": "string"
+                                                                },
+                                                                "name": {
+                                                                    "type": "string"
+                                                                },
+                                                                "hex_code": {
+                                                                    "type": "string",
+                                                                    "nullable": true
+                                                                },
+                                                                "color_sku_code": {
+                                                                    "type": "string",
+                                                                    "nullable": true
+                                                                },
+                                                                "manufacturer_uuid": {
+                                                                    "type": "string",
+                                                                    "nullable": true
+                                                                },
+                                                                "manufacturer_name": {
+                                                                    "type": "string",
+                                                                    "nullable": true
+                                                                }
+                                                            },
+                                                            "type": "object"
+                                                        }
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Non authentifié"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/products": {
+            "get": {
+                "tags": [
+                    "Produits"
+                ],
+                "summary": "Liste des produits",
+                "description": "Retourne la liste des produits. Les variantes de couleur sont traitées comme des produits à part entière.",
+                "operationId": "getProducts",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "description": "Numéro de page",
+                        "schema": {
+                            "type": "integer",
+                            "default": 1
+                        }
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "description": "Nombre de produits par page (max 500)",
+                        "schema": {
+                            "type": "integer",
+                            "default": 100,
+                            "maximum": 500
+                        }
+                    },
+                    {
+                        "name": "color",
+                        "in": "query",
+                        "description": "Filtrer par UUID de couleur principale",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "manufacturer_color",
+                        "in": "query",
+                        "description": "Filtrer par UUID de couleur fabricant",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "manufacturer",
+                        "in": "query",
+                        "description": "Filtrer par UUID de fabricant",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "category",
+                        "in": "query",
+                        "description": "Filtrer par UUID de catégorie",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Liste des produits",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "properties": {
+                                                    "sku": {
+                                                        "type": "string"
+                                                    },
+                                                    "name": {
+                                                        "type": "string"
+                                                    },
+                                                    "category_name": {
+                                                        "type": "string"
+                                                    },
+                                                    "category_uuid": {
+                                                        "type": "string"
+                                                    },
+                                                    "manufacturer": {
+                                                        "type": "string"
+                                                    },
+                                                    "principal_color": {
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "manufacturer_color": {
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "images": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "properties": {
+                                                                "url": {
+                                                                    "type": "string"
+                                                                },
+                                                                "position": {
+                                                                    "type": "string"
+                                                                },
+                                                                "neutral_background": {
+                                                                    "type": "boolean"
+                                                                },
+                                                                "product_only": {
+                                                                    "type": "boolean"
+                                                                }
+                                                            },
+                                                            "type": "object"
+                                                        }
+                                                    },
+                                                    "model_3d": {
+                                                        "properties": {
+                                                            "uuid": {
+                                                                "type": "string"
+                                                            },
+                                                            "status": {
+                                                                "type": "string"
+                                                            },
+                                                            "url": {
+                                                                "type": "string",
+                                                                "nullable": true
+                                                            }
+                                                        },
+                                                        "type": "object",
+                                                        "nullable": true
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        },
+                                        "meta": {
+                                            "properties": {
+                                                "current_page": {
+                                                    "type": "integer"
+                                                },
+                                                "per_page": {
+                                                    "type": "integer"
+                                                },
+                                                "total": {
+                                                    "type": "integer"
+                                                },
+                                                "last_page": {
+                                                    "type": "integer"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Non authentifié"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/products/search": {
+            "get": {
+                "tags": [
+                    "Produits"
+                ],
+                "summary": "Rechercher des produits",
+                "description": "Recherche des produits par SKU ou par nom. Les variantes de couleur sont traitées comme des produits à part entière.",
+                "operationId": "searchProducts",
+                "parameters": [
+                    {
+                        "name": "q",
+                        "in": "query",
+                        "description": "Terme de recherche (SKU ou nom du produit)",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 2
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "description": "Numéro de page",
+                        "schema": {
+                            "type": "integer",
+                            "default": 1
+                        }
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "description": "Nombre de produits par page (max 500)",
+                        "schema": {
+                            "type": "integer",
+                            "default": 100,
+                            "maximum": 500
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Résultats de la recherche",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "properties": {
+                                                    "sku": {
+                                                        "type": "string"
+                                                    },
+                                                    "name": {
+                                                        "type": "string"
+                                                    },
+                                                    "category_name": {
+                                                        "type": "string"
+                                                    },
+                                                    "category_uuid": {
+                                                        "type": "string"
+                                                    },
+                                                    "manufacturer": {
+                                                        "type": "string"
+                                                    },
+                                                    "principal_color": {
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "manufacturer_color": {
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "images": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "properties": {
+                                                                "url": {
+                                                                    "type": "string"
+                                                                },
+                                                                "position": {
+                                                                    "type": "string"
+                                                                },
+                                                                "neutral_background": {
+                                                                    "type": "boolean"
+                                                                },
+                                                                "product_only": {
+                                                                    "type": "boolean"
+                                                                }
+                                                            },
+                                                            "type": "object"
+                                                        }
+                                                    },
+                                                    "model_3d": {
+                                                        "properties": {
+                                                            "uuid": {
+                                                                "type": "string"
+                                                            },
+                                                            "status": {
+                                                                "type": "string"
+                                                            },
+                                                            "url": {
+                                                                "type": "string",
+                                                                "nullable": true
+                                                            }
+                                                        },
+                                                        "type": "object",
+                                                        "nullable": true
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        },
+                                        "meta": {
+                                            "properties": {
+                                                "current_page": {
+                                                    "type": "integer"
+                                                },
+                                                "per_page": {
+                                                    "type": "integer"
+                                                },
+                                                "total": {
+                                                    "type": "integer"
+                                                },
+                                                "last_page": {
+                                                    "type": "integer"
+                                                },
+                                                "query": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Paramètre de recherche manquant ou trop court"
+                    },
+                    "401": {
+                        "description": "Non authentifié"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/prerequest3d": {
+            "get": {
+                "tags": [
+                    "Modèles 3D"
+                ],
+                "summary": "Préparer une demande de modèle 3D",
+                "description": "Retourne les images éligibles pour la génération 3D (neutral_background=true, product_only=true). Vérifie également qu'aucun modèle 3D n'est déjà en cours de génération ou publié.",
+                "operationId": "prerequest3d",
+                "parameters": [
+                    {
+                        "name": "variant_uuid",
+                        "in": "query",
+                        "description": "UUID de la variante de couleur",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "product_sku",
+                        "in": "query",
+                        "description": "SKU du produit (alternative à variant_uuid)",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Images éligibles pour la génération 3D",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "mode": {
+                                            "type": "string",
+                                            "enum": [
+                                                "variant",
+                                                "general"
+                                            ]
+                                        },
+                                        "product_sku": {
+                                            "type": "string"
+                                        },
+                                        "variant_uuid": {
+                                            "type": "string",
+                                            "nullable": true
+                                        },
+                                        "variant_sku": {
+                                            "type": "string",
+                                            "nullable": true
+                                        },
+                                        "eligible_images": {
+                                            "type": "array",
+                                            "items": {
+                                                "properties": {
+                                                    "uuid": {
+                                                        "type": "string"
+                                                    },
+                                                    "position": {
+                                                        "type": "string"
+                                                    },
+                                                    "url": {
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        },
+                                        "recommended_ai_model": {
+                                            "type": "string",
+                                            "enum": [
+                                                "fal-mono",
+                                                "fal",
+                                                "meshy"
+                                            ]
+                                        },
+                                        "can_generate": {
+                                            "type": "boolean"
+                                        },
+                                        "message": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Paramètres manquants"
+                    },
+                    "404": {
+                        "description": "Produit ou variante non trouvé"
+                    },
+                    "401": {
+                        "description": "Non authentifié"
+                    },
+                    "409": {
+                        "description": "Conflit - Modèle 3D déjà existant",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {
+                                            "properties": {
+                                                "error": {
+                                                    "type": "string",
+                                                    "example": "Generation in progress"
+                                                },
+                                                "message": {
+                                                    "type": "string",
+                                                    "example": "This product is currently in processing for 3D generation, it takes less than 5 minutes, please retry later."
+                                                },
+                                                "model_3d_uuid": {
+                                                    "type": "string"
+                                                },
+                                                "status": {
+                                                    "type": "string",
+                                                    "example": "Requested"
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        {
+                                            "properties": {
+                                                "error": {
+                                                    "type": "string",
+                                                    "example": "Already published"
+                                                },
+                                                "message": {
+                                                    "type": "string",
+                                                    "example": "This product already has a 3D model, if the 3D model has an issue please contact our support."
+                                                },
+                                                "model_3d_uuid": {
+                                                    "type": "string"
+                                                },
+                                                "status": {
+                                                    "type": "string",
+                                                    "example": "Published"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/request3d": {
+            "post": {
+                "tags": [
+                    "Modèles 3D"
+                ],
+                "summary": "Demander la génération d'un modèle 3D",
+                "description": "Lance la génération d'un modèle 3D. Le modèle AI est automatiquement sélectionné selon les images fournies: 1 image front = fal-mono, 3 images (front+back+left/right) = fal multi-image.",
+                "operationId": "request3d",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "images"
+                                ],
+                                "properties": {
+                                    "variant_uuid": {
+                                        "description": "UUID de la variante de couleur (requis si pas de product_uuid)",
+                                        "type": "string",
+                                        "format": "uuid"
+                                    },
+                                    "product_uuid": {
+                                        "description": "UUID du produit (requis si pas de variant_uuid)",
+                                        "type": "string",
+                                        "format": "uuid"
+                                    },
+                                    "images": {
+                                        "description": "Tableau des images à utiliser pour la génération",
+                                        "type": "array",
+                                        "items": {
+                                            "required": [
+                                                "uuid",
+                                                "position"
+                                            ],
+                                            "properties": {
+                                                "uuid": {
+                                                    "description": "UUID de l'image",
+                                                    "type": "string",
+                                                    "format": "uuid"
+                                                },
+                                                "position": {
+                                                    "description": "Position de l'image",
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "front",
+                                                        "back",
+                                                        "left",
+                                                        "right"
+                                                    ]
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Génération lancée",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "message": {
+                                            "type": "string"
+                                        },
+                                        "model_3d_uuid": {
+                                            "type": "string"
+                                        },
+                                        "status": {
+                                            "type": "string",
+                                            "example": "Requested"
+                                        },
+                                        "ai_model_used": {
+                                            "type": "string",
+                                            "enum": [
+                                                "fal-mono",
+                                                "fal"
+                                            ]
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Paramètres manquants ou invalides",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        },
+                                        "message": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Produit, variante ou image non trouvé"
+                    },
+                    "409": {
+                        "description": "Conflit - Modèle 3D déjà existant ou en cours de génération",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {
+                                            "properties": {
+                                                "error": {
+                                                    "type": "string",
+                                                    "example": "Generation in progress"
+                                                },
+                                                "message": {
+                                                    "type": "string",
+                                                    "example": "This product is currently in processing for 3D generation, it takes less than 5 minutes, please retry later."
+                                                },
+                                                "model_3d_uuid": {
+                                                    "type": "string"
+                                                },
+                                                "status": {
+                                                    "type": "string",
+                                                    "example": "Requested"
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        {
+                                            "properties": {
+                                                "error": {
+                                                    "type": "string",
+                                                    "example": "Already published"
+                                                },
+                                                "message": {
+                                                    "type": "string",
+                                                    "example": "This product already has a 3D model, if the 3D model has an issue please contact our support."
+                                                },
+                                                "model_3d_uuid": {
+                                                    "type": "string"
+                                                },
+                                                "status": {
+                                                    "type": "string",
+                                                    "example": "Published"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Non authentifié"
+                    },
+                    "500": {
+                        "description": "Erreur lors de la génération"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        }
+    },
+    "components": {
+        "securitySchemes": {
+            "bearerAuth": {
+                "type": "http",
+                "bearerFormat": "JWT",
+                "scheme": "bearer"
+            }
+        }
+    },
+    "tags": [
+        {
+            "name": "Authentification",
+            "description": "Authentification"
+        },
+        {
+            "name": "Catégories",
+            "description": "Catégories"
+        },
+        {
+            "name": "Couleurs",
+            "description": "Couleurs"
+        },
+        {
+            "name": "Fabricants",
+            "description": "Fabricants"
+        },
+        {
+            "name": "Produits",
+            "description": "Produits"
+        },
+        {
+            "name": "Modèles 3D",
+            "description": "Modèles 3D"
+        }
+    ]
+}

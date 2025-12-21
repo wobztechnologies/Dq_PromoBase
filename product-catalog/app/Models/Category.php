@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Storage;
 
 class Category extends Model
 {
@@ -19,6 +20,8 @@ class Category extends Model
         'translations',
         'parent_id',
         'path',
+        'order',
+        'image_s3_url',
     ];
 
     protected $casts = [
@@ -52,7 +55,9 @@ class Category extends Model
         });
 
         // Recalculer le path lors de la mise à jour si le parent change
+        // + Supprimer l'ancienne image S3 si elle change
         static::updating(function ($category) {
+            // Gestion du changement de parent
             if ($category->isDirty('parent_id')) {
                 if ($category->parent_id) {
                     $parent = static::find($category->parent_id);
@@ -68,6 +73,18 @@ class Category extends Model
 
                 // Mettre à jour les paths de tous les enfants
                 static::updateChildrenPaths($category);
+            }
+
+            // Supprimer l'ancienne image S3 si elle change
+            if ($category->isDirty('image_s3_url') && $category->getOriginal('image_s3_url')) {
+                Storage::disk('s3')->delete($category->getOriginal('image_s3_url'));
+            }
+        });
+
+        // Supprimer l'image S3 lors de la suppression de la catégorie
+        static::deleting(function ($category) {
+            if ($category->image_s3_url) {
+                Storage::disk('s3')->delete($category->image_s3_url);
             }
         });
     }
@@ -128,5 +145,35 @@ class Category extends Model
         $translations = $this->translations ?? [];
         $translations[$locale] = $name;
         $this->translations = $translations;
+    }
+
+    /**
+     * Obtenir l'URL complète de l'image
+     */
+    public function getImageUrlAttribute(): ?string
+    {
+        if (!$this->image_s3_url) {
+            return null;
+        }
+
+        return Storage::disk('s3')->url($this->image_s3_url);
+    }
+
+    /**
+     * Obtenir l'URL présignée de l'image (valide 24h)
+     */
+    public function getImageSignedUrlAttribute(): ?string
+    {
+        if (!$this->image_s3_url) {
+            return null;
+        }
+
+        try {
+            // Générer une URL présignée valide pendant 24 heures
+            return Storage::disk('s3')->temporaryUrl($this->image_s3_url, now()->addHours(24));
+        } catch (\Exception $e) {
+            // En cas d'erreur, retourner l'URL directe
+            return Storage::disk('s3')->url($this->image_s3_url);
+        }
     }
 }

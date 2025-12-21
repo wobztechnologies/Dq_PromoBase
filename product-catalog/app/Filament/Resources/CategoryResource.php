@@ -9,6 +9,7 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Support\Facades\Storage;
 
 class CategoryResource extends Resource
 {
@@ -42,6 +43,20 @@ class CategoryResource extends Resource
                                     ->maxLength(255),
                             ]);
                     }, array_keys($locales), $locales))
+                    ->columnSpanFull(),
+                Forms\Components\FileUpload::make('image_s3_url')
+                    ->label('Image de la catégorie')
+                    ->disk('s3')
+                    ->directory('categories')
+                    ->image()
+                    ->imageEditor()
+                    ->imageResizeMode('cover')
+                    ->imageCropAspectRatio('1:1')
+                    ->imageResizeTargetWidth('200')
+                    ->imageResizeTargetHeight('200')
+                    ->maxSize(2048)
+                    ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])
+                    ->helperText('Image de la catégorie (max 2MB, formats: JPG, PNG, WebP). Sera redimensionnée en 200x200px.')
                     ->columnSpanFull(),
                 Forms\Components\Select::make('parent_id')
                     ->label('Catégorie parente')
@@ -88,6 +103,14 @@ class CategoryResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            ->reorderable('order')
+            ->reorderRecordsTriggerAction(
+                fn (Tables\Actions\Action $action, bool $isReordering) => $action
+                    ->button()
+                    ->label($isReordering ? 'Terminer le tri' : 'Réorganiser')
+                    ->icon($isReordering ? 'heroicon-o-check' : 'heroicon-o-arrows-up-down')
+                    ->color($isReordering ? 'success' : 'gray'),
+            )
             ->columns([
                 Tables\Columns\TextColumn::make('name')
                     ->label('Nom')
@@ -136,12 +159,24 @@ class CategoryResource extends Resource
                             $name
                         );
                     }),
+                Tables\Columns\ImageColumn::make('image_signed_url')
+                    ->label('Image')
+                    ->width(40)
+                    ->height(40)
+                    ->circular()
+                    ->defaultImageUrl(fn () => 'https://via.placeholder.com/40x40?text=?')
+                    ->toggleable(),
                 Tables\Columns\TextColumn::make('parent.name')
                     ->label('Catégorie parente')
                     ->searchable()
                     ->sortable()
                     ->placeholder('—')
                     ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('order')
+                    ->label('Ordre')
+                    ->sortable()
+                    ->badge()
+                    ->color('gray'),
                 Tables\Columns\TextColumn::make('children_count')
                     ->label('Sous-catégories')
                     ->counts('children')
@@ -163,7 +198,7 @@ class CategoryResource extends Resource
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
-            ->defaultSort('path', 'asc') // Trier par path pour respecter la hiérarchie
+            ->defaultSort('order')
             ->filters([
                 Tables\Filters\SelectFilter::make('parent_id')
                     ->label('Catégorie parente')

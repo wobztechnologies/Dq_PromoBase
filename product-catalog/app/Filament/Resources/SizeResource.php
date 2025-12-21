@@ -47,7 +47,15 @@ class SizeResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query) => $query->orderBy('order')->orderBy('name'))
+            ->reorderable('order')
+            ->reorderRecordsTriggerAction(
+                fn (Tables\Actions\Action $action, bool $isReordering) => $action
+                    ->button()
+                    ->label($isReordering ? 'Terminer le tri' : 'Réorganiser')
+                    ->icon($isReordering ? 'heroicon-o-check' : 'heroicon-o-arrows-up-down')
+                    ->color($isReordering ? 'success' : 'gray'),
+            )
+            ->defaultSort('order')
             ->columns([
                 Tables\Columns\TextColumn::make('name')
                     ->label('Nom')
@@ -56,7 +64,8 @@ class SizeResource extends Resource
                 Tables\Columns\TextColumn::make('order')
                     ->label('Ordre')
                     ->sortable()
-                    ->toggleable(),
+                    ->badge()
+                    ->color('gray'),
                 Tables\Columns\TextColumn::make('sizeVariants_count')
                     ->label('Utilisations')
                     ->counts('sizeVariants')
@@ -82,8 +91,7 @@ class SizeResource extends Resource
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
-            ])
-            ->defaultSort('order');
+            ]);
     }
 
     public static function getRelations(): array

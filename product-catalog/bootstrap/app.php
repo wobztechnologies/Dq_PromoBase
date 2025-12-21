@@ -12,7 +12,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        // Enregistrer les alias de middleware
+        $middleware->alias([
+            'api.update.last.used' => \App\Http\Middleware\UpdateApiUserLastUsed::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
