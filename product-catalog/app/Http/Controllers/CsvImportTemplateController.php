@@ -2,25 +2,29 @@
 
 namespace App\Http\Controllers;
 
+use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use League\Csv\Writer;
 
 class CsvImportTemplateController extends Controller
 {
-    public function download(string $type): Response
+    public function download(Request $request, string $type): Response
     {
-        $headers = $this->getHeadersForType($type);
+        $mode = $request->query('mode');
+        $headers = $this->getHeadersForType($type, $mode);
         
         $csv = Writer::createFromString();
         $csv->insertOne($headers);
         
         // Ajouter une ligne d'exemple
-        $example = $this->getExampleForType($type);
+        $example = $this->getExampleForType($type, $mode);
         if ($example) {
             $csv->insertOne($example);
         }
         
-        $filename = "modele_import_{$type}_" . date('Y-m-d') . ".csv";
+        $filename = $mode 
+            ? "modele_import_{$type}_{$mode}.csv" 
+            : "modele_import_{$type}.csv";
         
         return response($csv->toString(), 200, [
             'Content-Type' => 'text/csv; charset=UTF-8',
@@ -28,65 +32,137 @@ class CsvImportTemplateController extends Controller
         ]);
     }
 
-    protected function getHeadersForType(string $type): array
+    /**
+     * Langues supportées pour les traductions
+     */
+    protected const SUPPORTED_LOCALES = ['fr', 'en', 'de', 'es', 'it', 'nl', 'pt', 'pl'];
+
+    protected function getHeadersForType(string $type, ?string $mode = null): array
     {
         return match($type) {
-            'category' => ['name', 'parent_name'],
+            'category' => $this->getCategoryHeaders(),
             'distributor' => ['name', 'logo_url'],
             'manufacturer' => ['name', 'logo_url'],
-            'manufacturer_color' => ['name', 'manufacturer_name', 'hex_code', 'parent_name'],
+            'manufacturer_color' => [
+                'name', 
+                'manufacturer_name', 
+                'hex_code', 
+                'parent_name', 
+                'color_sku_code', 
+                'rgb', 
+                'pantone_c', 
+                'pantone_tcx', 
+                'pms'
+            ],
             'stock' => ['sku_distributor', 'distributor_name', 'stock'],
             'price' => ['sku_distributor', 'distributor_name', 'price', 'tier_name', 'min_quantity'],
-            'product' => [
-                'sku',
-                'name',
-                'category_name',
-                'manufacturer_name',
-                'color_name',
-                'size_name',
-                'sku_distributor',
-                'distributor_name',
-                'image_1_url',
-                'image_2_url',
-                'image_3_url',
-                'image_4_url',
-                'image_5_url',
-                'image_6_url',
-                'image_7_url',
-                'image_8_url',
-            ],
+            'product' => $this->getProductHeaders($mode),
             default => [],
         };
     }
 
-    protected function getExampleForType(string $type): ?array
+    protected function getCategoryHeaders(): array
+    {
+        $headers = ['name', 'parent_name'];
+        
+        // Ajouter les colonnes de traduction pour chaque langue
+        foreach (self::SUPPORTED_LOCALES as $locale) {
+            $headers[] = "name_{$locale}";
+        }
+        
+        return $headers;
+    }
+
+    protected function getCategoryExample(): array
+    {
+        // Exemple avec traductions
+        return [
+            'Chaussures',           // name
+            'Vêtements',            // parent_name
+            'Chaussures',           // name_fr
+            'Shoes',                // name_en
+            'Schuhe',               // name_de
+            'Zapatos',              // name_es
+            'Scarpe',               // name_it
+            'Schoenen',             // name_nl
+            'Sapatos',              // name_pt
+            'Buty',                 // name_pl
+        ];
+    }
+
+    protected function getProductHeaders(?string $mode): array
+    {
+        $headers = [
+            'sku',
+            'name',
+            'category_name',
+            'manufacturer_name',
+            'primary_color_name',
+            'color_name',
+            'size_name',
+        ];
+
+        // Mode distributeur : ajouter les champs distributeur
+        if ($mode === 'distributor') {
+            $headers[] = 'distributor_name';
+            $headers[] = 'sku_distributor';
+        }
+
+        // Ajouter les URLs d'images (8 max)
+        for ($i = 1; $i <= 8; $i++) {
+            $headers[] = "image_{$i}_url";
+        }
+
+        return $headers;
+    }
+
+    protected function getExampleForType(string $type, ?string $mode = null): ?array
     {
         return match($type) {
-            'category' => ['Chaussures', 'Vêtements'],
+            'category' => $this->getCategoryExample(),
             'distributor' => ['Mon Distributeur', 'https://example.com/logo.png'],
             'manufacturer' => ['Mon Fabricant', 'https://example.com/logo.png'],
-            'manufacturer_color' => ['Rouge', 'Mon Fabricant', '#FF0000', 'Rouge Principal'],
-            'stock' => ['SKU-123', 'Mon Distributeur', '100'],
-            'price' => ['SKU-123', 'Mon Distributeur', '29.99', 'Standard', '1'],
-            'product' => [
-                'PROD-001',
-                'Produit exemple',
-                'Chaussures',
-                'Mon Fabricant',
-                'Rouge',
-                '42',
-                'DIST-SKU-001',
-                'Mon Distributeur',
-                'https://example.com/image1.jpg',
-                'https://example.com/image2.jpg',
-                '',
-                '',
-                '',
-                '',
-                '',
-                '',
+            'manufacturer_color' => [
+                'Ash Heather', 
+                'Kariban', 
+                '#EBE7DE', 
+                'Gris', 
+                'ASH', 
+                '235,231,222', 
+                '', 
+                '', 
+                ''
             ],
+            'stock' => ['DIST-SKU-001', 'Mon Distributeur', '100'],
+            'price' => ['DIST-SKU-001', 'Mon Distributeur', '29.99', 'Standard', '1'],
+            'product' => $this->getProductExample($mode),
             default => null,
         };
+    }
+
+    protected function getProductExample(?string $mode): array
+    {
+        $example = [
+            'PROD-001',
+            'T-Shirt Coton Bio',
+            'Vêtements',
+            'Kariban',
+            'Gris',
+            'Ash Heather',
+            'XL',
+        ];
+
+        if ($mode === 'distributor') {
+            $example[] = 'Mon Distributeur';
+            $example[] = 'DIST-SKU-001';
+        }
+
+        // Images d'exemple
+        $example[] = 'https://example.com/image1.jpg';
+        for ($i = 2; $i <= 8; $i++) {
+            $example[] = '';
+        }
+
+        return $example;
     }
 }

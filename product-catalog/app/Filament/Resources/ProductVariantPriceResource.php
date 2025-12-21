@@ -57,11 +57,14 @@ class ProductVariantPriceResource extends Resource
                                 'colorVariant',
                                 'sku',
                                 fn (Builder $query, Forms\Get $get) => $query->where('product_id', $get('product_id'))
-                                    ->with(['primaryColor.parent'])
+                                    ->with(['primaryColor.manufacturer'])
                             )
                             ->getOptionLabelFromRecordUsing(function ($record) {
-                                $record->loadMissing('primaryColor.parent');
-                                return $record->sku . ' - ' . ($record->primaryColor->full_name ?? $record->primaryColor->name ?? 'Inconnu');
+                                $record->loadMissing('primaryColor.manufacturer');
+                                $color = $record->primaryColor;
+                                $manufacturer = $color?->manufacturer?->name ?? '';
+                                $label = $manufacturer ? "{$color->name} ({$manufacturer})" : ($color->name ?? 'Inconnu');
+                                return $record->sku . ' - ' . $label;
                             })
                             ->searchable()
                             ->preload()

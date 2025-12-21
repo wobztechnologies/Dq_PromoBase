@@ -53,7 +53,9 @@ class StockAndPricesRelationManager extends RelationManager
                     }
                     
                     if ($record->colorVariant) {
-                        $colorName = $record->colorVariant->primaryColor->full_name ?? $record->colorVariant->primaryColor->name ?? 'Inconnu';
+                        $color = $record->colorVariant->primaryColor;
+                        $manufacturer = $color?->manufacturer?->name ?? '';
+                        $colorName = $manufacturer ? "{$color->name} ({$manufacturer})" : ($color->name ?? 'Inconnu');
                         
                         if ($record->sizeVariant) {
                             // Affichage hiérarchique : taille sous la couleur
@@ -221,7 +223,7 @@ class StockAndPricesRelationManager extends RelationManager
                 return ProductVariantPrice::query()
                     ->whereIn('id', $uniqueIds)
                     ->with([
-                        'colorVariant.primaryColor.parent',
+                        'colorVariant.primaryColor.manufacturer',
                         'sizeVariant.size',
                         'priceTiers' => fn($q) => $q->orderBy('quantity_min', 'asc')
                     ])

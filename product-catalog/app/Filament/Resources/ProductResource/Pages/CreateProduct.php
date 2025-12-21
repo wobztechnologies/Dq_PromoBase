@@ -17,8 +17,9 @@ class CreateProduct extends CreateRecord
             $data['primary_color_id'] = null;
         }
         
-        // Supprimer le champ product_type qui n'est pas dans la base de données
+        // Supprimer les champs qui ne sont pas dans la base de données
         unset($data['product_type']);
+        unset($data['primary_color_parent_id']); // Champ temporaire pour la sélection
         
         return $data;
     }

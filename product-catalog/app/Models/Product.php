@@ -32,17 +32,17 @@ class Product extends Model
         // Désactiver l'indexation automatique de Scout pour éviter les erreurs si Meilisearch n'est pas disponible
         static::disableSearchSyncing();
         
-        // Validation : un produit ne peut pas avoir à la fois une couleur principale et des variantes de couleur
+        // Validation : un produit ne peut pas avoir à la fois une couleur fabricant et des variantes de couleur
         static::saving(function ($product) {
-            // Si le produit a une couleur principale, il ne doit pas avoir de variantes de couleur
+            // Si le produit a une couleur fabricant, il ne doit pas avoir de variantes de couleur
             if ($product->primary_color_id && $product->colorVariants()->count() > 0) {
-                throw new \Exception('Un produit ne peut pas avoir à la fois une couleur principale et des variantes de couleur. Un produit est soit simple (avec couleur principale), soit variant (avec variantes de couleur).');
+                throw new \Exception('Un produit ne peut pas avoir à la fois une couleur fabricant et des variantes de couleur. Un produit est soit simple (avec couleur fabricant), soit variant (avec variantes de couleur).');
             }
         });
         
         // Après la sauvegarde, vérifier si des variantes de couleur ont été ajoutées
         static::saved(function ($product) {
-            // Si des variantes de couleur existent, supprimer la couleur principale
+            // Si des variantes de couleur existent, supprimer la couleur fabricant
             if ($product->colorVariants()->count() > 0 && $product->primary_color_id) {
                 $product->primary_color_id = null;
                 $product->saveQuietly(); // saveQuietly pour éviter les boucles infinies
@@ -95,7 +95,7 @@ class Product extends Model
     }
 
     /**
-     * Couleur principale du produit (si définie directement sans variante)
+     * Couleur fabricant du produit (si définie directement sans variante)
      */
     public function primaryColor(): BelongsTo
     {
@@ -104,7 +104,7 @@ class Product extends Model
 
     /**
      * Variantes de taille directement sur le produit (sans variante de couleur)
-     * Uniquement pour les produits simples (avec couleur principale)
+     * Uniquement pour les produits simples (avec couleur fabricant)
      */
     public function sizeVariants(): HasMany
     {
@@ -127,7 +127,7 @@ class Product extends Model
     }
     
     /**
-     * Vérifier si le produit est simple (avec couleur principale) ou variant (avec variantes de couleur)
+     * Vérifier si le produit est simple (avec couleur fabricant) ou variant (avec variantes de couleur)
      * 
      * @return string 'simple' ou 'variant'
      */
@@ -196,7 +196,7 @@ class Product extends Model
 
     public function toSearchableArray(): array
     {
-        $this->load(['category', 'manufacturer', 'colorVariants.primaryColor.parent']);
+        $this->load(['category', 'manufacturer', 'colorVariants.primaryColor.manufacturer']);
         
         return [
             'sku' => $this->sku,
@@ -204,7 +204,9 @@ class Product extends Model
             'category' => $this->category?->name,
             'manufacturer' => $this->manufacturer?->name,
             'colors' => $this->colorVariants->map(function ($variant) {
-                return $variant->primaryColor->full_name ?? $variant->primaryColor->name;
+                $color = $variant->primaryColor;
+                $manufacturer = $color?->manufacturer?->name ?? '';
+                return $manufacturer ? "{$color->name} ({$manufacturer})" : $color->name;
             })->filter()->toArray(),
         ];
     }

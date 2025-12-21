@@ -3,6 +3,7 @@
 namespace App\Services\CsvImport\Handlers;
 
 use App\Models\CsvImport;
+use App\Services\CsvImport\CsvAnalysisService;
 use App\Services\CsvImport\ImportHandlerInterface;
 use App\Services\CsvImport\MappingService;
 use League\Csv\Reader;
@@ -22,7 +23,15 @@ abstract class BaseImportHandler implements ImportHandlerInterface
      */
     protected function readCsv(CsvImport $import): array
     {
-        $csv = Reader::createFromPath($import->csv_file_path, 'r');
+        $filePath = $import->file_path;
+        
+        // Détecter automatiquement le format CSV (séparateur et enclosure)
+        $analysisService = app(CsvAnalysisService::class);
+        $format = $analysisService->detectCsvFormat($filePath);
+        
+        $csv = Reader::createFromPath($filePath, 'r');
+        $csv->setDelimiter($format['delimiter']);
+        $csv->setEnclosure($format['enclosure']);
         $csv->setHeaderOffset(0);
         
         $stmt = Statement::create();

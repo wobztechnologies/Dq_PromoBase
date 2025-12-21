@@ -18,7 +18,16 @@ class CategoryResource extends Resource
 
     public static function form(Form $form): Form
     {
-        $locales = ['fr' => 'Français', 'en' => 'English', 'es' => 'Español', 'de' => 'Deutsch', 'it' => 'Italiano'];
+        $locales = [
+            'fr' => 'Français', 
+            'en' => 'English', 
+            'de' => 'Deutsch', 
+            'es' => 'Español', 
+            'it' => 'Italiano', 
+            'nl' => 'Nederlands', 
+            'pt' => 'Português',
+            'pl' => 'Polski',
+        ];
         
         return $form
             ->schema([

@@ -13,7 +13,11 @@ class ListCsvImports extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            Actions\CreateAction::make(),
+            Actions\Action::make('wizard')
+                ->label('Nouvel import')
+                ->icon('heroicon-o-arrow-up-tray')
+                ->color('primary')
+                ->url(CsvImportResource::getUrl('wizard')),
         ];
     }
 }

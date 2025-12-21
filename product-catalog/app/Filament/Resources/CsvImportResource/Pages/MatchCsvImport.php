@@ -4,6 +4,7 @@ namespace App\Filament\Resources\CsvImportResource\Pages;
 
 use App\Filament\Resources\CsvImportResource;
 use App\Models\CsvImport;
+use App\Services\CsvImport\CsvAnalysisService;
 use App\Services\CsvImport\CsvImportService;
 use App\Services\CsvImport\MatchingService;
 use Filament\Notifications\Notification;
@@ -51,7 +52,13 @@ class MatchCsvImport extends Page
     protected function loadUnmappedValues(): void
     {
         try {
+            // Détecter automatiquement le format CSV (séparateur et enclosure)
+            $analysisService = app(CsvAnalysisService::class);
+            $format = $analysisService->detectCsvFormat($this->record->file_path);
+            
             $csv = Reader::createFromPath($this->record->file_path, 'r');
+            $csv->setDelimiter($format['delimiter']);
+            $csv->setEnclosure($format['enclosure']);
             $csv->setHeaderOffset(0);
             $records = iterator_to_array($csv->getRecords());
             

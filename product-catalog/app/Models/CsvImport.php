@@ -24,6 +24,8 @@ class CsvImport extends Model
         'report_path',
         'status',
         'validation_errors',
+        'column_mapping',
+        'value_mappings',
         'total_rows',
         'processed_rows',
         'successful_rows',
@@ -35,6 +37,8 @@ class CsvImport extends Model
 
     protected $casts = [
         'validation_errors' => 'array',
+        'column_mapping' => 'array',
+        'value_mappings' => 'array',
         'started_at' => 'datetime',
         'completed_at' => 'datetime',
     ];

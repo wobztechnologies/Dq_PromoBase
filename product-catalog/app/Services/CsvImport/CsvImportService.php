@@ -18,7 +18,8 @@ class CsvImportService
 {
     public function __construct(
         protected CsvValidator $validator,
-        protected MatchingService $matchingService
+        protected MatchingService $matchingService,
+        protected CsvAnalysisService $analysisService
     ) {}
 
     /**
@@ -33,7 +34,14 @@ class CsvImportService
         }
         
         try {
+            // Détecter automatiquement le format CSV (séparateur et enclosure)
+            $format = $this->analysisService->detectCsvFormat($filePath);
+            $delimiter = $format['delimiter'];
+            $enclosure = $format['enclosure'];
+            
             $csv = Reader::createFromPath($filePath, 'r');
+            $csv->setDelimiter($delimiter);
+            $csv->setEnclosure($enclosure);
             $csv->setHeaderOffset(0);
             
             $headers = $csv->getHeader();
@@ -42,7 +50,18 @@ class CsvImportService
             // Valider les en-têtes
             $headerErrors = $this->validator->validateHeaders($import->type, $headers);
             if (!empty($headerErrors)) {
-                return ['errors' => $headerErrors];
+                // Convertir les erreurs d'en-têtes en format structuré
+                $structuredErrors = [];
+                foreach ($headerErrors as $error) {
+                    $structuredErrors[] = [
+                        'row' => 1,
+                        'field' => 'headers',
+                        'message' => $error,
+                        'data' => ['headers' => $headers],
+                    ];
+                }
+                $import->markValidationFailed($structuredErrors);
+                return ['errors' => $structuredErrors];
             }
             
             // Valider les données
@@ -67,7 +86,17 @@ class CsvImportService
             ];
             
         } catch (\Exception $e) {
-            return ['errors' => ['Erreur lors de la lecture du CSV: ' . $e->getMessage()]];
+            // Sauvegarder l'erreur de lecture
+            $error = [
+                [
+                    'row' => 0,
+                    'field' => 'file',
+                    'message' => 'Erreur lors de la lecture du CSV: ' . $e->getMessage(),
+                    'data' => [],
+                ]
+            ];
+            $import->markValidationFailed($error);
+            return ['errors' => $error];
         }
     }
 
@@ -94,16 +123,32 @@ class CsvImportService
                 throw new \Exception('Le fichier CSV n\'existe pas');
             }
             
+            // Détecter automatiquement le format CSV (séparateur et enclosure)
+            $format = $this->analysisService->detectCsvFormat($filePath);
+            $delimiter = $format['delimiter'];
+            $enclosure = $format['enclosure'];
+            
             $csv = Reader::createFromPath($filePath, 'r');
+            $csv->setDelimiter($delimiter);
+            $csv->setEnclosure($enclosure);
             $csv->setHeaderOffset(0);
             
             $records = iterator_to_array($csv->getRecords());
             $handler = $this->getHandler($import->type);
             
+            // Appliquer les mappings de colonnes et valeurs si disponibles
+            $rowMapper = app(\App\Services\CsvImport\CsvRowMapperService::class);
+            
             foreach ($records as $rowIndex => $row) {
                 $rowNumber = $rowIndex + 2; // +2 car ligne 1 = headers
                 
-                $success = $handler->processRow($import, $row, $rowNumber);
+                // Appliquer le mapping de colonnes
+                $mappedRow = $rowMapper->mapRow($row, $import);
+                
+                // Appliquer les mappings de valeurs
+                $mappedRow = $rowMapper->applyValueMappings($mappedRow, $import);
+                
+                $success = $handler->processRow($import, $mappedRow, $rowNumber);
                 
                 if ($success) {
                     $import->incrementSuccessful();
@@ -190,15 +235,35 @@ class CsvImportService
         $report[] = "Échecs: {$import->failed_rows}";
         $report[] = "";
         
-        // Ajouter les erreurs
+        // Ajouter les erreurs de validation
+        if ($import->validation_errors && !empty($import->validation_errors)) {
+            $report[] = "=== ERREURS DE VALIDATION ===";
+            foreach ($import->validation_errors as $error) {
+                $row = $error['row'] ?? 'N/A';
+                $field = $error['field'] ?? 'N/A';
+                $message = $error['message'] ?? 'Erreur inconnue';
+                $data = $error['data'] ?? [];
+                
+                $report[] = "Ligne {$row} - Champ: {$field}";
+                $report[] = "  Message: {$message}";
+                if (!empty($data)) {
+                    $report[] = "  Données: " . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+                }
+                $report[] = "";
+            }
+        }
+        
+        // Ajouter les erreurs de traitement
         $errors = $import->logs()->errors()->get();
         if ($errors->count() > 0) {
-            $report[] = "=== PRODUITS NON IMPORTÉS ===";
+            $report[] = "=== ERREURS DE TRAITEMENT ===";
             foreach ($errors as $error) {
-                $report[] = "Ligne {$error->row_number} (SKU: {$error->sku}): {$error->message}";
+                $sku = $error->sku ?? 'N/A';
+                $report[] = "Ligne {$error->row_number} (SKU: {$sku}): {$error->message}";
                 if ($error->data) {
-                    $report[] = "  Données: " . json_encode($error->data, JSON_UNESCAPED_UNICODE);
+                    $report[] = "  Données: " . json_encode($error->data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
                 }
+                $report[] = "";
             }
         }
         

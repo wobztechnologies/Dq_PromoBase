@@ -137,6 +137,26 @@ class CsvValidator
             $rules['parent_name'] = 'nullable|string|max:255';
         }
         
+        if (in_array('color_sku_code', $headers)) {
+            $rules['color_sku_code'] = 'nullable|string|max:255';
+        }
+        
+        if (in_array('rgb', $headers)) {
+            $rules['rgb'] = 'nullable|string|max:255';
+        }
+        
+        if (in_array('pantone_c', $headers)) {
+            $rules['pantone_c'] = 'nullable|string|max:255';
+        }
+        
+        if (in_array('pantone_tcx', $headers)) {
+            $rules['pantone_tcx'] = 'nullable|string|max:255';
+        }
+        
+        if (in_array('pms', $headers)) {
+            $rules['pms'] = 'nullable|string|max:255';
+        }
+        
         return $rules;
     }
 
@@ -226,6 +246,10 @@ class CsvValidator
         // Variantes de couleur
         if (in_array('color_name', $headers)) {
             $rules['color_name'] = 'nullable|string|max:255';
+        }
+        
+        if (in_array('primary_color_name', $headers)) {
+            $rules['primary_color_name'] = 'nullable|string|max:255';
         }
         
         // Variantes de taille

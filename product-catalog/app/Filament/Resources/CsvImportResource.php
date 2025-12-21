@@ -104,6 +104,53 @@ class CsvImportResource extends Resource
                             ->columnSpanFull(),
                     ])
                     ->collapsible(),
+                
+                Forms\Components\Section::make('Erreurs de validation')
+                    ->schema([
+                        Forms\Components\Placeholder::make('validation_errors_display')
+                            ->label('Détails des erreurs')
+                            ->content(function ($get, $record) {
+                                if (!$record || !$record->validation_errors || empty($record->validation_errors)) {
+                                    return new \Illuminate\Support\HtmlString('<p class="text-sm text-gray-500">Aucune erreur de validation.</p>');
+                                }
+                                
+                                $errors = $record->validation_errors;
+                                $html = '<div class="space-y-2">';
+                                
+                                // Si c'est un tableau simple de messages
+                                if (isset($errors[0]) && is_string($errors[0])) {
+                                    foreach ($errors as $error) {
+                                        $html .= '<div class="p-3 bg-red-50 border border-red-200 rounded-lg"><p class="text-sm text-red-800">' . htmlspecialchars($error) . '</p></div>';
+                                    }
+                                } else {
+                                    // Si c'est un tableau d'erreurs structurées
+                                    foreach ($errors as $error) {
+                                        $row = $error['row'] ?? 'N/A';
+                                        $field = $error['field'] ?? 'N/A';
+                                        $message = $error['message'] ?? 'Erreur inconnue';
+                                        $data = $error['data'] ?? [];
+                                        
+                                        $html .= '<div class="p-3 bg-red-50 border border-red-200 rounded-lg">';
+                                        $html .= '<p class="text-sm font-semibold text-red-800">Ligne ' . $row . ' - Champ: ' . htmlspecialchars($field) . '</p>';
+                                        $html .= '<p class="text-sm text-red-700 mt-1">' . htmlspecialchars($message) . '</p>';
+                                        if (!empty($data)) {
+                                            $html .= '<details class="mt-2"><summary class="text-xs text-red-600 cursor-pointer">Données de la ligne</summary>';
+                                            $html .= '<pre class="mt-1 text-xs bg-white p-2 rounded border border-red-200 overflow-auto">' . htmlspecialchars(json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)) . '</pre></details>';
+                                        }
+                                        $html .= '</div>';
+                                    }
+                                }
+                                
+                                $html .= '</div>';
+                                return new \Illuminate\Support\HtmlString($html);
+                            })
+                            ->columnSpanFull(),
+                    ])
+                    ->visible(function ($record) {
+                        return $record && $record->validation_errors && !empty($record->validation_errors);
+                    })
+                    ->collapsible()
+                    ->collapsed(false),
             ]);
     }
 
@@ -169,6 +216,77 @@ class CsvImportResource extends Resource
                     ->label('Échecs')
                     ->sortable(),
                 
+                Tables\Columns\TextColumn::make('validation_errors_display')
+                    ->label('Erreurs')
+                    ->html()
+                    ->getStateUsing(function (CsvImport $record) {
+                        if (!$record->validation_errors || empty($record->validation_errors)) {
+                            return '-';
+                        }
+                        
+                        $errors = $record->validation_errors;
+                        $count = is_array($errors) ? count($errors) : 0;
+                        
+                        if ($count === 0) {
+                            return '-';
+                        }
+                        
+                        // Générer un ID unique pour cette ligne
+                        $rowId = 'errors-' . str_replace('-', '', $record->id);
+                        
+                        $html = '<div class="w-full">';
+                        // Bouton pour afficher/masquer les erreurs
+                        $html .= '<details class="group">';
+                        $html .= '<summary class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800 hover:bg-red-200 cursor-pointer list-none">';
+                        $html .= '<svg class="w-4 h-4 mr-1 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">';
+                        $html .= '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>';
+                        $html .= '</svg>';
+                        $html .= '<span>' . $count . ' erreur(s)</span>';
+                        $html .= '</summary>';
+                        
+                        // Zone d'affichage des erreurs
+                        $html .= '<div class="mt-3 p-4 bg-red-50 border border-red-200 rounded-lg">';
+                        $html .= '<h4 class="text-sm font-semibold text-red-800 mb-2">Détails des erreurs :</h4>';
+                        $html .= '<div class="space-y-2 max-h-96 overflow-y-auto">';
+                        
+                        // Si c'est un tableau simple de messages
+                        if (isset($errors[0]) && is_string($errors[0])) {
+                            foreach ($errors as $index => $error) {
+                                $html .= '<div class="p-2 bg-white border border-red-200 rounded">';
+                                $html .= '<p class="text-sm text-red-800">' . htmlspecialchars($error) . '</p>';
+                                $html .= '</div>';
+                            }
+                        } else {
+                            // Si c'est un tableau d'erreurs structurées
+                            foreach ($errors as $error) {
+                                $row = $error['row'] ?? $error['row_number'] ?? 'N/A';
+                                $field = $error['field'] ?? 'N/A';
+                                $message = $error['message'] ?? ($error['error_message'] ?? 'Erreur inconnue');
+                                $data = $error['data'] ?? ($error['row_data'] ?? []);
+                                
+                                $html .= '<div class="p-3 bg-white border border-red-200 rounded">';
+                                $html .= '<p class="text-sm font-semibold text-red-800">Ligne ' . $row . ' - Champ: ' . htmlspecialchars($field) . '</p>';
+                                $html .= '<p class="text-sm text-red-700 mt-1">' . htmlspecialchars($message) . '</p>';
+                                if (!empty($data)) {
+                                    $html .= '<details class="mt-2">';
+                                    $html .= '<summary class="text-xs text-red-600 cursor-pointer hover:text-red-800">Données de la ligne</summary>';
+                                    $html .= '<pre class="mt-1 text-xs bg-gray-50 p-2 rounded border border-gray-200 overflow-auto max-h-32">' . htmlspecialchars(json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)) . '</pre>';
+                                    $html .= '</details>';
+                                }
+                                $html .= '</div>';
+                            }
+                        }
+                        
+                        $html .= '</div>';
+                        $html .= '</div>';
+                        $html .= '</details>';
+                        $html .= '</div>';
+                        
+                        return new \Illuminate\Support\HtmlString($html);
+                    })
+                    ->wrap()
+                    ->extraAttributes(['class' => 'w-full']),
+                
                 Tables\Columns\TextColumn::make('createdBy.name')
                     ->label('Créé par')
                     ->sortable(),
@@ -202,6 +320,13 @@ class CsvImportResource extends Resource
                     ]),
             ])
             ->actions([
+                Tables\Actions\Action::make('import_wizard')
+                    ->label('Nouvel import')
+                    ->icon('heroicon-o-arrow-up-tray')
+                    ->color('primary')
+                    ->url(fn () => CsvImportResource::getUrl('wizard'))
+                    ->button(),
+                
                 Tables\Actions\Action::make('validate')
                     ->label('Valider')
                     ->icon('heroicon-o-check-circle')
@@ -212,12 +337,27 @@ class CsvImportResource extends Resource
                             $service = app(\App\Services\CsvImport\CsvImportService::class);
                             $result = $service->validate($record);
                             
+                            // Recharger le record pour avoir les données à jour
+                            $record->refresh();
+                            
                             if (isset($result['errors']) && !empty($result['errors'])) {
+                                $errorCount = is_array($result['errors']) ? count($result['errors']) : 1;
+                                
                                 \Filament\Notifications\Notification::make()
                                     ->title('Erreurs de validation')
-                                    ->body('Le CSV contient ' . count($result['errors']) . ' erreur(s). Consultez les détails dans l\'import.')
+                                    ->body('Le CSV contient ' . $errorCount . ' erreur(s). Le statut a été mis à jour. Cliquez sur "Voir les erreurs" pour consulter les détails.')
                                     ->danger()
+                                    ->persistent()
+                                    ->actions([
+                                        \Filament\Notifications\Actions\Action::make('view')
+                                            ->label('Voir les erreurs')
+                                            ->button()
+                                            ->close()
+                                    ])
                                     ->send();
+                                
+                                // Forcer le rechargement de la page pour voir le nouveau statut
+                                return redirect()->to(CsvImportResource::getUrl('index'));
                             } else {
                                 $record->markPendingMatching();
                                 \Filament\Notifications\Notification::make()
@@ -225,6 +365,8 @@ class CsvImportResource extends Resource
                                     ->body('Le CSV est valide (' . ($result['total_rows'] ?? 0) . ' lignes). Vous pouvez maintenant faire le matching.')
                                     ->success()
                                     ->send();
+                                
+                                return redirect()->to(CsvImportResource::getUrl('index'));
                             }
                         } catch (\Exception $e) {
                             \Filament\Notifications\Notification::make()
@@ -232,6 +374,16 @@ class CsvImportResource extends Resource
                                 ->body('Erreur: ' . $e->getMessage())
                                 ->danger()
                                 ->send();
+                            
+                            // Sauvegarder l'erreur exception
+                            $record->markValidationFailed([
+                                [
+                                    'row' => 0,
+                                    'field' => 'exception',
+                                    'message' => 'Erreur lors de la validation: ' . $e->getMessage(),
+                                    'data' => ['exception' => get_class($e)],
+                                ]
+                            ]);
                         }
                     }),
                 
@@ -241,6 +393,23 @@ class CsvImportResource extends Resource
                     ->color('info')
                     ->url(fn (CsvImport $record) => Pages\MatchCsvImport::getUrl(['record' => $record]))
                     ->visible(fn (CsvImport $record) => $record->status === 'pending_matching'),
+                
+                Tables\Actions\Action::make('download_report')
+                    ->label('Télécharger le rapport')
+                    ->icon('heroicon-o-document-arrow-down')
+                    ->color('info')
+                    ->visible(fn (CsvImport $record) => $record->report_path !== null && Storage::disk('s3')->exists($record->report_path))
+                    ->action(function (CsvImport $record) {
+                        $reportContent = Storage::disk('s3')->get($record->report_path);
+                        $filename = 'import_report_' . $record->id . '_' . now()->format('Y-m-d_His') . '.txt';
+                        
+                        return response()->streamDownload(function () use ($reportContent) {
+                            echo $reportContent;
+                        }, $filename, [
+                            'Content-Type' => 'text/plain',
+                            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+                        ]);
+                    }),
                 
                 Tables\Actions\Action::make('process')
                     ->label('Traiter')
@@ -286,7 +455,7 @@ class CsvImportResource extends Resource
     {
         return [
             'index' => Pages\ListCsvImports::route('/'),
-            'create' => Pages\CreateCsvImport::route('/create'),
+            'wizard' => Pages\ImportWizard::route('/wizard'),
             'edit' => Pages\EditCsvImport::route('/{record}/edit'),
             'match' => Pages\MatchCsvImport::route('/{record}/match'),
         ];

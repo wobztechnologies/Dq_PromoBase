@@ -48,7 +48,6 @@ class StockImportHandler implements ImportHandlerInterface
             $variantPrice->last_updated_at = now();
             $variantPrice->save();
             
-            $import->incrementSuccessful();
             return true;
             
         } catch (\Exception $e) {

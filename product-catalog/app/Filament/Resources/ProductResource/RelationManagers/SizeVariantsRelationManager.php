@@ -71,7 +71,7 @@ class SizeVariantsRelationManager extends RelationManager
                         // Variantes liées aux variantes de couleur du produit
                         $q->where('product_id', $product->id);
                     })
-                    ->with(['size', 'colorVariant.primaryColor.parent'])
+                    ->with(['size', 'colorVariant.primaryColor.manufacturer'])
                     ->orderByRaw('CASE WHEN product_color_variant_id IS NULL THEN 0 ELSE 1 END')
                     ->orderBy('product_color_variant_id')
                     ->orderBy('size_id');
@@ -84,7 +84,9 @@ class SizeVariantsRelationManager extends RelationManager
                         if (!$record || !$record->colorVariant) {
                             return '📦 Produit simple (sans variante de couleur)';
                         }
-                        $colorName = $record->colorVariant->primaryColor->full_name ?? 'Sans couleur';
+                        $color = $record->colorVariant->primaryColor;
+                        $manufacturer = $color?->manufacturer?->name ?? '';
+                        $colorName = $manufacturer ? "{$color->name} ({$manufacturer})" : ($color->name ?? 'Sans couleur');
                         return $record->colorVariant->sku . ' - ' . $colorName;
                     })
                     ->getDescriptionFromRecordUsing(function ($record) {

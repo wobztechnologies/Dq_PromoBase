@@ -63,7 +63,6 @@ class ManufacturerImportHandler implements ImportHandlerInterface
                 $import->created_by
             );
             
-            $import->incrementSuccessful();
             return true;
             
         } catch (\Exception $e) {

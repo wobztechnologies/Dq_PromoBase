@@ -51,9 +51,14 @@ class ProductSizeVariantResource extends Resource
                         Forms\Components\Select::make('product_color_variant_id')
                             ->label('Variante de couleur (pour produit variant)')
                             ->relationship('colorVariant', 'sku', 
-                                fn ($query) => $query->with(['product', 'primaryColor.parent'])
+                                fn ($query) => $query->with(['product', 'primaryColor.manufacturer'])
                             )
-                            ->getOptionLabelFromRecordUsing(fn ($record) => $record->product->name . ' - ' . $record->sku . ' (' . ($record->primaryColor->full_name ?? '-') . ')')
+                            ->getOptionLabelFromRecordUsing(function ($record) {
+                                $color = $record->primaryColor;
+                                $manufacturer = $color?->manufacturer?->name ?? '';
+                                $colorLabel = $manufacturer ? "{$color->name} ({$manufacturer})" : ($color->name ?? '-');
+                                return $record->product->name . ' - ' . $record->sku . ' (' . $colorLabel . ')';
+                            })
                             ->searchable()
                             ->preload()
                             ->helperText('Sélectionnez une variante de couleur (pour produit variant)')
@@ -113,7 +118,7 @@ class ProductSizeVariantResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn ($query) => $query->with(['product', 'colorVariant.primaryColor.parent', 'size']))
+            ->modifyQueryUsing(fn ($query) => $query->with(['product', 'colorVariant.primaryColor.manufacturer', 'size']))
             ->columns([
                 Tables\Columns\TextColumn::make('product.name')
                     ->label('Produit')
@@ -122,7 +127,15 @@ class ProductSizeVariantResource extends Resource
                     ->sortable(),
                 Tables\Columns\TextColumn::make('colorVariant.sku')
                     ->label('Variante de couleur')
-                    ->getStateUsing(fn ($record) => $record->colorVariant ? $record->colorVariant->sku . ' (' . ($record->colorVariant->primaryColor->full_name ?? '-') . ')' : '-')
+                    ->getStateUsing(function ($record) {
+                        if (!$record->colorVariant) {
+                            return '-';
+                        }
+                        $color = $record->colorVariant->primaryColor;
+                        $manufacturer = $color?->manufacturer?->name ?? '';
+                        $colorLabel = $manufacturer ? "{$color->name} ({$manufacturer})" : ($color->name ?? '-');
+                        return $record->colorVariant->sku . ' (' . $colorLabel . ')';
+                    })
                     ->searchable()
                     ->sortable()
                     ->placeholder('-'),

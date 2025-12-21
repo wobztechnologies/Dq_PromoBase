@@ -30,7 +30,7 @@ class ProductColorVariant extends Model
                 $variant->id = (string) \Illuminate\Support\Str::uuid();
             }
             
-            // Si on crée une variante de couleur, supprimer la couleur principale du produit
+            // Si on crée une variante de couleur, supprimer la couleur fabricant du produit
             if ($variant->product_id) {
                 $product = \App\Models\Product::find($variant->product_id);
                 if ($product && $product->primary_color_id) {

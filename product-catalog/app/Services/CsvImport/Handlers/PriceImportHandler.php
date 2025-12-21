@@ -80,7 +80,6 @@ class PriceImportHandler implements ImportHandlerInterface
                 $tier->save();
             }
             
-            $import->incrementSuccessful();
             return true;
             
         } catch (\Exception $e) {

@@ -34,6 +34,7 @@ class ProductImportHandler implements ImportHandlerInterface
                 $categoryName = $row['category_name'] ?? null;
                 $manufacturerName = $row['manufacturer_name'] ?? null;
                 $colorName = $row['color_name'] ?? null;
+                $primaryColorName = $row['primary_color_name'] ?? null;
                 $sizeName = $row['size_name'] ?? null;
                 $skuDistributor = $row['sku_distributor'] ?? null;
                 $distributorName = $row['distributor_name'] ?? null;
@@ -87,13 +88,71 @@ class ProductImportHandler implements ImportHandlerInterface
                 
                 // Gérer les variantes de couleur
                 $colorVariant = null;
-                if ($colorName) {
+                $color = null;
+                
+                // Si les deux colonnes sont fournies : couleur principale + couleur fabricant
+                if ($primaryColorName && $colorName) {
+                    // Chercher la couleur principale
+                    $primaryColor = PrimaryColor::where('name', $primaryColorName)
+                        ->whereNull('parent_id')
+                        ->whereNull('manufacturer_id')
+                        ->first();
+                    
+                    if (!$primaryColor) {
+                        $import->addLog('error', "Couleur principale '{$primaryColorName}' non trouvée", $row, $rowNumber, $sku);
+                        return false;
+                    }
+                    
+                    // Chercher la couleur fabricant qui correspond à la couleur principale et au fabricant
+                    $color = PrimaryColor::where('name', $colorName)
+                        ->where('parent_id', $primaryColor->id)
+                        ->where('manufacturer_id', $manufacturer->id)
+                        ->first();
+                    
+                    if (!$color) {
+                        $import->addLog('error', "Couleur fabricant '{$colorName}' non trouvée pour la couleur principale '{$primaryColorName}' et le fabricant '{$manufacturerName}'", $row, $rowNumber, $sku);
+                        return false;
+                    }
+                }
+                // Si seulement la couleur principale est fournie : produit simple avec couleur principale
+                elseif ($primaryColorName && !$colorName) {
+                    $color = PrimaryColor::where('name', $primaryColorName)
+                        ->whereNull('parent_id')
+                        ->whereNull('manufacturer_id')
+                        ->first();
+                    
+                    if (!$color) {
+                        $import->addLog('error', "Couleur principale '{$primaryColorName}' non trouvée", $row, $rowNumber, $sku);
+                        return false;
+                    }
+                    
+                    // Pour un produit simple, définir la couleur directement sur le produit
+                    if ($import->strategy === 'create_update') {
+                        $product->primary_color_id = $color->id;
+                        $product->save();
+                    }
+                }
+                // Si seulement color_name est fourni (compatibilité avec anciens imports)
+                elseif ($colorName) {
+                    // Chercher la couleur (peut être principale ou fabricant)
                     $color = PrimaryColor::where('name', $colorName)->first();
+                    
                     if (!$color) {
                         $import->addLog('error', "Couleur '{$colorName}' non trouvée", $row, $rowNumber, $sku);
                         return false;
                     }
                     
+                    // Si c'est une couleur principale, l'associer au produit
+                    if (!$color->parent_id && !$color->manufacturer_id) {
+                        if ($import->strategy === 'create_update') {
+                            $product->primary_color_id = $color->id;
+                            $product->save();
+                        }
+                    }
+                }
+                
+                // Créer la variante de couleur si nécessaire (seulement si c'est une couleur fabricant)
+                if ($color && $color->parent_id && $color->manufacturer_id) {
                     $colorVariant = ProductColorVariant::where('product_id', $product->id)
                         ->where('primary_color_id', $color->id)
                         ->first();
@@ -162,7 +221,6 @@ class ProductImportHandler implements ImportHandlerInterface
                 // Gérer les images (jusqu'à 8)
                 $this->processImages($import, $product, $colorVariant, $row, $rowNumber);
                 
-                $import->incrementSuccessful();
                 return true;
                 
             } catch (\Exception $e) {
@@ -273,6 +331,9 @@ class ProductImportHandler implements ImportHandlerInterface
             }
             if (!empty($row['color_name'])) {
                 $values['primary_color'][] = $row['color_name'];
+            }
+            if (!empty($row['primary_color_name'])) {
+                $values['primary_color'][] = $row['primary_color_name'];
             }
             if (!empty($row['size_name'])) {
                 $values['size'][] = $row['size_name'];

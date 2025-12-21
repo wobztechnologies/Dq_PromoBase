@@ -21,6 +21,11 @@ class ManufacturerColorImportHandler implements ImportHandlerInterface
             $manufacturerName = $row['manufacturer_name'] ?? null;
             $hexCode = $row['hex_code'] ?? null;
             $parentName = $row['parent_name'] ?? null;
+            $colorSkuCode = $row['color_sku_code'] ?? null;
+            $rgb = $row['rgb'] ?? null;
+            $pantoneC = $row['pantone_c'] ?? null;
+            $pantoneTcx = $row['pantone_tcx'] ?? null;
+            $pms = $row['pms'] ?? null;
             
             if (!$name || !$manufacturerName) {
                 $import->addLog('error', 'Nom de couleur ou fabricant manquant', $row, $rowNumber);
@@ -66,9 +71,29 @@ class ManufacturerColorImportHandler implements ImportHandlerInterface
                 $color->hex_code = $hexCode;
             }
             
+            if ($colorSkuCode !== null) {
+                $color->color_sku_code = $colorSkuCode;
+            }
+            
+            if ($rgb !== null) {
+                $color->rgb = $rgb;
+            }
+            
+            if ($pantoneC !== null) {
+                $color->pantone_c = $pantoneC;
+            }
+            
+            if ($pantoneTcx !== null) {
+                $color->pantone_tcx = $pantoneTcx;
+            }
+            
+            if ($pms !== null) {
+                $color->pms = $pms;
+            }
+            
             $color->save();
             
-            // Créer le mapping
+            // Créer le mapping pour réutilisation future
             $this->matchingService->createMapping(
                 'manufacturer_color',
                 $name,
@@ -78,7 +103,6 @@ class ManufacturerColorImportHandler implements ImportHandlerInterface
                 $import->created_by
             );
             
-            $import->incrementSuccessful();
             return true;
             
         } catch (\Exception $e) {

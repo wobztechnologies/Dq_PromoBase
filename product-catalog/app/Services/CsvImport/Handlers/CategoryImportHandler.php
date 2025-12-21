@@ -10,6 +10,11 @@ use Illuminate\Support\Str;
 
 class CategoryImportHandler implements ImportHandlerInterface
 {
+    /**
+     * Langues supportées pour les traductions
+     */
+    protected const SUPPORTED_LOCALES = ['fr', 'en', 'de', 'es', 'it', 'nl', 'pt', 'pl'];
+
     public function __construct(
         protected MatchingService $matchingService
     ) {}
@@ -48,6 +53,14 @@ class CategoryImportHandler implements ImportHandlerInterface
                 }
             }
             
+            // Gérer les traductions
+            $translations = $this->extractTranslations($row);
+            if (!empty($translations)) {
+                // Fusionner avec les traductions existantes
+                $existingTranslations = $category->translations ?? [];
+                $category->translations = array_merge($existingTranslations, $translations);
+            }
+            
             $category->save();
             
             // Créer le mapping
@@ -60,13 +73,37 @@ class CategoryImportHandler implements ImportHandlerInterface
                 $import->created_by
             );
             
-            $import->incrementSuccessful();
             return true;
             
         } catch (\Exception $e) {
             $import->addLog('error', 'Erreur lors du traitement: ' . $e->getMessage(), $row, $rowNumber);
             return false;
         }
+    }
+
+    /**
+     * Extraire les traductions depuis la ligne CSV
+     */
+    protected function extractTranslations(array $row): array
+    {
+        $translations = [];
+        
+        foreach (self::SUPPORTED_LOCALES as $locale) {
+            $key = "name_{$locale}";
+            if (!empty($row[$key])) {
+                $translations[$locale] = trim($row[$key]);
+            }
+        }
+        
+        return $translations;
+    }
+
+    /**
+     * Obtenir la liste des langues supportées
+     */
+    public static function getSupportedLocales(): array
+    {
+        return self::SUPPORTED_LOCALES;
     }
 
     public function getMatchingValues(array $rows): array

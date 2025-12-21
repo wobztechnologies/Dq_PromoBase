@@ -10,6 +10,7 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Storage;
 
 class PrimaryColorResource extends Resource
 {
@@ -27,7 +28,7 @@ class PrimaryColorResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()->whereNull('parent_id');
+        return parent::getEloquentQuery()->whereNull('parent_id')->whereNull('manufacturer_id');
     }
 
     public static function form(Form $form): Form
@@ -49,9 +50,29 @@ class PrimaryColorResource extends Resource
                             ]);
                     }, array_keys($locales), $locales))
                     ->columnSpanFull(),
+                
                 Forms\Components\ColorPicker::make('hex_code')
                     ->label('Couleur')
                     ->helperText('Sélectionnez la couleur ou saisissez le code hexadécimal'),
+                
+                Forms\Components\FileUpload::make('image_s3_url')
+                    ->label('Image de couleur')
+                    ->disk('s3')
+                    ->directory('colors')
+                    ->getUploadedFileNameForStorageUsing(function (\Livewire\Features\SupportFileUploads\TemporaryUploadedFile $file) {
+                        return \Illuminate\Support\Str::uuid() . '.webp';
+                    })
+                    ->visibility('public')
+                    ->image()
+                    ->imageEditor()
+                    ->imageEditorAspectRatios([
+                        '1:1',
+                    ])
+                    ->maxSize(2048)
+                    ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])
+                    ->helperText('Téléchargez une image pour remplacer la pastille de couleur (max 2MB, formats: JPG, PNG, WebP). L\'image sera redimensionnée en 100x100 en WebP.')
+                    ->deletable(true)
+                    ->downloadable(),
             ]);
     }
 
@@ -68,11 +89,19 @@ class PrimaryColorResource extends Resource
                     ->searchable()
                     ->sortable()
                     ->html()
-                    ->getStateUsing(fn ($record) => 
-                        $record->hex_code 
+                    ->getStateUsing(function ($record) {
+                        if ($record->image_s3_url) {
+                            try {
+                                $imageUrl = Storage::disk('s3')->temporaryUrl($record->image_s3_url, now()->addHours(24));
+                            } catch (\Exception $e) {
+                                $imageUrl = Storage::disk('s3')->url($record->image_s3_url);
+                            }
+                            return '<div class="flex items-center gap-2"><img src="' . $imageUrl . '" alt="' . htmlspecialchars($record->name) . '" class="w-6 h-6 rounded border border-gray-300 object-cover" /><span>' . ($record->hex_code ?? '-') . '</span></div>';
+                        }
+                        return $record->hex_code 
                             ? '<div class="flex items-center gap-2"><div class="w-6 h-6 rounded border border-gray-300" style="background-color: ' . $record->hex_code . '"></div><span>' . $record->hex_code . '</span></div>'
-                            : '-'
-                    ),
+                            : '-';
+                    }),
                 Tables\Columns\TextColumn::make('children_count')
                     ->label('Couleurs fabricant')
                     ->counts('children')

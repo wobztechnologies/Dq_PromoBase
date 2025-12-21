@@ -84,15 +84,18 @@ class Models3DRelationManager extends RelationManager
                         function ($query) {
                             $productId = $this->getOwnerRecord()->id;
                             return $query->where('product_id', $productId)
-                                ->with('primaryColor.parent');
+                                ->with('primaryColor.manufacturer');
                         }
                     )
                     ->multiple()
                     ->preload()
                     ->searchable()
-                    ->getOptionLabelFromRecordUsing(fn ($record) =>
-                        $record->sku . ' - ' . ($record->primaryColor->full_name ?? $record->primaryColor->name ?? 'N/A')
-                    )
+                    ->getOptionLabelFromRecordUsing(function ($record) {
+                        $color = $record->primaryColor;
+                        $manufacturer = $color?->manufacturer?->name ?? '';
+                        $label = $manufacturer ? "{$color->name} ({$manufacturer})" : ($color->name ?? 'N/A');
+                        return $record->sku . ' - ' . $label;
+                    })
                     ->helperText('Sélectionnez une ou plusieurs variantes de couleur pour ce modèle 3D'),
                 Forms\Components\ViewField::make('preview_3d_model')
                     ->label('Aperçu du modèle 3D')
@@ -108,7 +111,7 @@ class Models3DRelationManager extends RelationManager
     public function table(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn ($query) => $query->with(['colorVariants.primaryColor.parent']))
+            ->modifyQueryUsing(fn ($query) => $query->with(['colorVariants.primaryColor.manufacturer']))
             ->recordTitleAttribute('s3_url')
             ->columns([
                 Tables\Columns\TextColumn::make('status')
@@ -149,9 +152,11 @@ class Models3DRelationManager extends RelationManager
                         }
                         return '<div style="display: flex; flex-direction: column; gap: 0.25rem;">' .
                             $record->colorVariants->map(function ($variant) {
-                                $color = $variant->primaryColor->hex_code ?? $variant->primaryColor->parent?->hex_code ?? '#fbbf24';
+                                $color = $variant->primaryColor->hex_code ?? '#fbbf24';
                                 $textColor = $this->getContrastColor($color);
-                                $label = $variant->sku . ' (' . ($variant->primaryColor->full_name ?? $variant->primaryColor->name ?? 'N/A') . ')';
+                                $colorName = $variant->primaryColor->name ?? 'N/A';
+                                $manufacturer = $variant->primaryColor->manufacturer?->name ?? '';
+                                $label = $variant->sku . ' (' . ($manufacturer ? "{$colorName} ({$manufacturer})" : $colorName) . ')';
                                 return '<span style="background-color: ' . $color . '; color: ' . $textColor . '; padding: 0.25rem 0.5rem; border-radius: 0.375rem; font-size: 0.75rem; font-weight: 500; display: inline-block; width: fit-content;">' . htmlspecialchars($label) . '</span>';
                             })->join('') .
                             '</div>';
@@ -166,10 +171,13 @@ class Models3DRelationManager extends RelationManager
                                     ->options(function () {
                                         $productId = $this->getOwnerRecord()->id;
                                         return \App\Models\ProductColorVariant::where('product_id', $productId)
-                                            ->with('primaryColor.parent')
+                                            ->with('primaryColor.manufacturer')
                                             ->get()
                                             ->mapWithKeys(function ($variant) {
-                                                $label = $variant->sku . ' - ' . ($variant->primaryColor->full_name ?? $variant->primaryColor->name ?? 'N/A');
+                                                $color = $variant->primaryColor;
+                                                $manufacturer = $color?->manufacturer?->name ?? '';
+                                                $label = $manufacturer ? "{$color->name} ({$manufacturer})" : ($color->name ?? 'N/A');
+                                                $label = $variant->sku . ' - ' . $label;
                                                 return [$variant->id => $label];
                                             })
                                             ->toArray();
@@ -239,10 +247,13 @@ class Models3DRelationManager extends RelationManager
                             ->options(function (RelationManager $livewire) {
                                 $productId = $livewire->getOwnerRecord()->id;
                                 return \App\Models\ProductColorVariant::where('product_id', $productId)
-                                    ->with('primaryColor.parent')
+                                    ->with('primaryColor.manufacturer')
                                     ->get()
                                     ->mapWithKeys(function ($variant) {
-                                        $label = $variant->sku . ' - ' . ($variant->primaryColor->full_name ?? $variant->primaryColor->name ?? 'N/A');
+                                        $color = $variant->primaryColor;
+                                        $manufacturer = $color?->manufacturer?->name ?? '';
+                                        $label = $manufacturer ? "{$color->name} ({$manufacturer})" : ($color->name ?? 'N/A');
+                                        $label = $variant->sku . ' - ' . $label;
                                         return [$variant->id => $label];
                                     })
                                     ->toArray();

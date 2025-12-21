@@ -9,6 +9,7 @@ use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
 use Filament\Tables\Columns\ColorColumn;
 use Filament\Tables\Table;
+use Illuminate\Support\Facades\Storage;
 
 class ColorVariantsRelationManager extends RelationManager
 {
@@ -22,18 +23,79 @@ class ColorVariantsRelationManager extends RelationManager
 
     public function form(Form $form): Form
     {
+        $product = $this->getOwnerRecord();
+        $manufacturerId = $product->manufacturer_id;
+        
         return $form
             ->schema([
-                Forms\Components\Select::make('primary_color_id')
-                    ->label('Couleur')
-                    ->relationship('primaryColor', 'name', 
-                        fn ($query) => $query->with('parent')->orderBy('parent_id')->orderBy('name')
-                    )
-                    ->getOptionLabelFromRecordUsing(fn ($record) => $record->full_name)
-                    ->searchable(['name', 'parent.name'])
+                Forms\Components\Select::make('primary_color_parent_id')
+                    ->label('Couleur principale')
+                    ->options(function ($record) {
+                        // Si on édite, récupérer la couleur principale de la couleur fabricant existante
+                        if ($record && $record->primaryColor && $record->primaryColor->parent_id) {
+                            $parent = \App\Models\PrimaryColor::find($record->primaryColor->parent_id);
+                            if ($parent) {
+                                return [$parent->id => $parent->name];
+                            }
+                        }
+                        return \App\Models\PrimaryColor::whereNull('parent_id')
+                            ->whereNull('manufacturer_id')
+                            ->orderBy('name')
+                            ->pluck('name', 'id');
+                    })
+                    ->searchable()
                     ->preload()
+                    ->reactive()
                     ->required()
-                    ->helperText('Sélectionnez la couleur (sous-couleur) de cette variante. Les sous-couleurs affichent le nom complet (ex: "Bleu Hawaii")'),
+                    ->dehydrated(false)
+                    ->afterStateHydrated(function ($component, $record) {
+                        if ($record && $record->primaryColor && $record->primaryColor->parent_id) {
+                            $component->state($record->primaryColor->parent_id);
+                        }
+                    })
+                    ->helperText('Sélectionnez d\'abord une couleur principale'),
+                
+                Forms\Components\Select::make('primary_color_id')
+                    ->label('Couleur fabricant')
+                    ->options(function ($get, $state, $record) use ($manufacturerId) {
+                        $parentId = $get('primary_color_parent_id');
+                        
+                        // Si on édite et qu'il n'y a pas de parent sélectionné, utiliser celui de la couleur existante
+                        if (!$parentId && $record && $record->primaryColor && $record->primaryColor->parent_id) {
+                            $parentId = $record->primaryColor->parent_id;
+                        }
+                        
+                        if (!$parentId) {
+                            return [];
+                        }
+                        
+                        $query = \App\Models\PrimaryColor::where('parent_id', $parentId)
+                            ->whereNotNull('manufacturer_id');
+                        
+                        if ($manufacturerId) {
+                            $query->where('manufacturer_id', $manufacturerId);
+                        }
+                        
+                        return $query->orderBy('name')
+                            ->get()
+                            ->mapWithKeys(function ($color) {
+                                $manufacturer = $color->manufacturer?->name ?? '';
+                                $label = $manufacturer ? "{$color->name} ({$manufacturer})" : $color->name;
+                                return [$color->id => $label];
+                            });
+                    })
+                    ->searchable()
+                    ->preload()
+                    ->reactive()
+                    ->visible(function ($get, $record) {
+                        $parentId = $get('primary_color_parent_id');
+                        if (!$parentId && $record && $record->primaryColor && $record->primaryColor->parent_id) {
+                            return true;
+                        }
+                        return !empty($parentId);
+                    })
+                    ->helperText('Sélectionnez ensuite la couleur fabricant correspondant à la couleur principale et au fabricant du produit'),
+                
                 Forms\Components\TextInput::make('sku')
                     ->label('SKU de la variante')
                     ->required()
@@ -47,7 +109,7 @@ class ColorVariantsRelationManager extends RelationManager
     public function table(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn ($query) => $query->with(['primaryColor.parent', 'productImages', 'sizeVariants.size']))
+            ->modifyQueryUsing(fn ($query) => $query->with(['primaryColor.parent', 'primaryColor.manufacturer', 'productImages', 'sizeVariants.size']))
             ->recordTitleAttribute('sku')
             ->columns([
                 Tables\Columns\TextColumn::make('sku')
@@ -73,24 +135,91 @@ class ColorVariantsRelationManager extends RelationManager
                         );
                     })
                     ->html(),
-                Tables\Columns\TextColumn::make('primaryColor.full_name')
+                Tables\Columns\TextColumn::make('primaryColor.parent.name')
                     ->label('Couleur')
-                    ->getStateUsing(fn ($record) => $record->primaryColor->full_name ?? '-')
+                    ->getStateUsing(function ($record) {
+                        $color = $record->primaryColor;
+                        if (!$color) {
+                            return '-';
+                        }
+                        // Si c'est une couleur fabricant (a un parent), afficher le parent
+                        if ($color->parent_id) {
+                            return $color->parent?->name ?? '-';
+                        }
+                        // Si c'est une couleur principale (pas de parent), afficher son nom
+                        return $color->name ?? '-';
+                    })
                     ->searchable(query: function ($query, $search) {
                         return $query->whereHas('primaryColor', function ($q) use ($search) {
-                            $q->where('name', 'like', "%{$search}%")
-                              ->orWhereHas('parent', function ($qp) use ($search) {
-                                  $qp->where('name', 'like', "%{$search}%");
-                              });
+                            $q->where(function ($subQ) use ($search) {
+                                $subQ->where('name', 'like', "%{$search}%")
+                                    ->orWhereHas('parent', function ($parentQ) use ($search) {
+                                        $parentQ->where('name', 'like', "%{$search}%");
+                                    });
+                            });
                         });
                     })
                     ->sortable(),
-                Tables\Columns\TextColumn::make('primaryColor.parent.name')
-                    ->label('Couleur principale')
-                    ->placeholder('—'),
-                Tables\Columns\ColorColumn::make('primaryColor.hex_code')
+                Tables\Columns\TextColumn::make('primaryColor.name')
+                    ->label('Couleur fabricant')
+                    ->getStateUsing(function ($record) {
+                        $color = $record->primaryColor;
+                        if (!$color) {
+                            return '-';
+                        }
+                        // Si c'est une couleur fabricant (a un parent), afficher son nom
+                        if ($color->parent_id) {
+                            return $color->name ?? '-';
+                        }
+                        // Si c'est une couleur principale (pas de parent), afficher "-"
+                        return '-';
+                    })
+                    ->searchable(query: function ($query, $search) {
+                        return $query->whereHas('primaryColor', function ($q) use ($search) {
+                            $q->whereNotNull('parent_id')
+                                ->where('name', 'like', "%{$search}%");
+                        });
+                    })
+                    ->sortable(),
+                Tables\Columns\TextColumn::make('primaryColor.hex_code')
                     ->label('Aperçu')
-                    ->getStateUsing(fn ($record) => $record->primaryColor->hex_code ?? $record->primaryColor->parent?->hex_code)
+                    ->html()
+                    ->getStateUsing(function ($record) {
+                        $primaryColor = $record->primaryColor;
+                        
+                        if (!$primaryColor) {
+                            return '-';
+                        }
+                        
+                        // Vérifier l'image de la couleur fabricant, puis celle du parent
+                        $imageUrl = null;
+                        $imagePath = null;
+                        if ($primaryColor->image_s3_url) {
+                            $imagePath = $primaryColor->image_s3_url;
+                        } elseif ($primaryColor->parent?->image_s3_url) {
+                            $imagePath = $primaryColor->parent->image_s3_url;
+                        }
+                        
+                        if ($imagePath) {
+                            try {
+                                $imageUrl = Storage::disk('s3')->temporaryUrl($imagePath, now()->addHours(24));
+                            } catch (\Exception $e) {
+                                $imageUrl = Storage::disk('s3')->url($imagePath);
+                            }
+                        }
+                        
+                        $hexCode = $primaryColor->hex_code ?? $primaryColor->parent?->hex_code;
+                        
+                        if ($imageUrl) {
+                            return '<img src="' . $imageUrl . '" alt="' . htmlspecialchars($primaryColor->name ?? '') . '" class="w-6 h-6 rounded border border-gray-300 object-cover" />';
+                        }
+                        
+                        if ($hexCode) {
+                            return '<div class="w-6 h-6 rounded border border-gray-300" style="background-color: ' . $hexCode . '"></div>';
+                        }
+                        
+                        return '-';
+                    })
                     ->sortable(),
                 Tables\Columns\TextColumn::make('productImages')
                     ->label('Images')
@@ -144,7 +273,7 @@ class ColorVariantsRelationManager extends RelationManager
                 Tables\Actions\CreateAction::make()
                     ->label('Ajouter une variante')
                     ->mutateFormDataUsing(function (array $data, RelationManager $livewire): array {
-                        // Si on crée une variante de couleur, supprimer la couleur principale du produit
+                        // Si on crée une variante de couleur, supprimer la couleur fabricant du produit
                         $product = $livewire->getOwnerRecord();
                         if ($product->primary_color_id) {
                             $product->primary_color_id = null;
@@ -242,7 +371,116 @@ class ColorVariantsRelationManager extends RelationManager
                                 ->send();
                         }
                     }),
-                Tables\Actions\EditAction::make(),
+                Tables\Actions\Action::make('edit_color')
+                    ->label('Modifier couleur')
+                    ->icon('heroicon-o-paint-brush')
+                    ->color('warning')
+                    ->iconButton()
+                    ->tooltip('Modifier la couleur')
+                    ->form([
+                        Forms\Components\Select::make('primary_color_parent_id')
+                            ->label('Couleur principale')
+                            ->options(function ($record) {
+                                // Récupérer la couleur principale actuelle si elle existe
+                                if ($record && $record->primaryColor && $record->primaryColor->parent_id) {
+                                    $parent = \App\Models\PrimaryColor::find($record->primaryColor->parent_id);
+                                    if ($parent) {
+                                        return [$parent->id => $parent->name];
+                                    }
+                                }
+                                return \App\Models\PrimaryColor::whereNull('parent_id')
+                                    ->whereNull('manufacturer_id')
+                                    ->orderBy('name')
+                                    ->pluck('name', 'id');
+                            })
+                            ->searchable()
+                            ->preload()
+                            ->reactive()
+                            ->required()
+                            ->dehydrated(false)
+                            ->afterStateHydrated(function ($component, $record) {
+                                if ($record && $record->primaryColor && $record->primaryColor->parent_id) {
+                                    $component->state($record->primaryColor->parent_id);
+                                }
+                            })
+                            ->helperText('Sélectionnez d\'abord une couleur principale'),
+                        
+                        Forms\Components\Select::make('primary_color_id')
+                            ->label('Couleur fabricant')
+                            ->options(function (callable $get, $record) {
+                                $product = $this->getOwnerRecord();
+                                $manufacturerId = $product->manufacturer_id;
+                                $parentId = $get('primary_color_parent_id');
+                                
+                                // Si on édite et qu'il n'y a pas de parent sélectionné, utiliser celui de la couleur existante
+                                if (!$parentId && $record && $record->primaryColor && $record->primaryColor->parent_id) {
+                                    $parentId = $record->primaryColor->parent_id;
+                                }
+                                
+                                if (!$parentId) {
+                                    return [];
+                                }
+                                
+                                $query = \App\Models\PrimaryColor::where('parent_id', $parentId)
+                                    ->whereNotNull('manufacturer_id');
+                                
+                                if ($manufacturerId) {
+                                    $query->where('manufacturer_id', $manufacturerId);
+                                }
+                                
+                                return $query->orderBy('name')
+                                    ->get()
+                                    ->mapWithKeys(function ($color) {
+                                        $manufacturer = $color->manufacturer?->name ?? '';
+                                        $label = $manufacturer ? "{$color->name} ({$manufacturer})" : $color->name;
+                                        return [$color->id => $label];
+                                    });
+                            })
+                            ->searchable()
+                            ->preload()
+                            ->reactive()
+                            ->visible(function ($get, $record) {
+                                $parentId = $get('primary_color_parent_id');
+                                if (!$parentId && $record && $record->primaryColor && $record->primaryColor->parent_id) {
+                                    return true;
+                                }
+                                return !empty($parentId);
+                            })
+                            ->afterStateHydrated(function ($component, $record) {
+                                if ($record && $record->primaryColor) {
+                                    $component->state($record->primaryColor->id);
+                                }
+                            })
+                            ->helperText('Sélectionnez ensuite la couleur fabricant correspondant à la couleur principale et au fabricant du produit'),
+                    ])
+                    ->action(function (array $data, $record) {
+                        if (isset($data['primary_color_id'])) {
+                            $record->primary_color_id = $data['primary_color_id'];
+                            $record->save();
+                            
+                            \Filament\Notifications\Notification::make()
+                                ->title('Couleur modifiée')
+                                ->body('La couleur de la variante a été mise à jour avec succès.')
+                                ->success()
+                                ->send();
+                        }
+                    }),
+                
+                Tables\Actions\EditAction::make()
+                    ->mutateFormDataUsing(function (array $data, $record): array {
+                        // Pré-remplir la couleur principale si elle existe
+                        if ($record && $record->primaryColor && $record->primaryColor->parent_id) {
+                            $data['primary_color_parent_id'] = $record->primaryColor->parent_id;
+                        }
+                        return $data;
+                    })
+                    ->after(function ($record, array $data) {
+                        // S'assurer que primary_color_id est bien défini
+                        if (isset($data['primary_color_id'])) {
+                            $record->primary_color_id = $data['primary_color_id'];
+                            $record->save();
+                        }
+                    }),
                 Tables\Actions\DeleteAction::make()
                     ->after(function ($livewire) {
                         // Si toutes les variantes de couleur sont supprimées, on peut définir une couleur principale
@@ -250,7 +488,7 @@ class ColorVariantsRelationManager extends RelationManager
                         if ($product->colorVariants()->count() === 0) {
                             \Filament\Notifications\Notification::make()
                                 ->title('Information')
-                                ->body('Vous pouvez maintenant définir une couleur principale pour ce produit simple.')
+                                ->body('Vous pouvez maintenant définir une couleur fabricant pour ce produit simple.')
                                 ->info()
                                 ->send();
                         }

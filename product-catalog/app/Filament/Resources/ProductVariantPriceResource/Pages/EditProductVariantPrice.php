@@ -24,7 +24,7 @@ class EditProductVariantPrice extends EditRecord
         // Eager load les relations nécessaires pour éviter le lazy loading
         $this->record->load([
             'product',
-            'colorVariant.primaryColor.parent',
+            'colorVariant.primaryColor.manufacturer',
             'sizeVariant.size',
         ]);
 

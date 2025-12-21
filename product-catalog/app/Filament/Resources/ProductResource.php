@@ -80,54 +80,109 @@ class ProductResource extends Resource
                         Forms\Components\Radio::make('product_type')
                             ->label('Type de produit')
                             ->options([
-                                'simple' => 'Produit simple (avec couleur principale)',
+                                'simple' => 'Produit simple (avec couleur fabricant)',
                                 'variant' => 'Produit variant (avec variantes de couleur)',
                             ])
                             ->default('simple')
                             ->reactive()
                             ->required()
-                            ->helperText('Choisissez le type de produit : simple (une seule couleur principale) ou variant (plusieurs variantes de couleur)')
+                            ->helperText('Choisissez le type de produit : simple (une seule couleur fabricant) ou variant (plusieurs variantes de couleur)')
                             ->visible(fn ($record) => !$record) // Visible uniquement lors de la création
                             ->dehydrated(false), // Ne pas sauvegarder ce champ dans la base de données
-                        Forms\Components\Select::make('primary_color_id')
-                            ->label('Couleur principale')
-                            ->relationship('primaryColor', 'name', 
-                                fn ($query) => $query->with('parent')->orderBy('parent_id')->orderBy('name')
-                            )
-                            ->getOptionLabelFromRecordUsing(fn ($record) => $record->full_name)
-                            ->searchable(['name', 'parent.name'])
-                            ->preload()
-                            ->helperText('Définir une couleur principale pour un produit simple. Un produit est soit simple (avec couleur principale, pas de variantes de couleur), soit variant (avec variantes de couleur, pas de couleur principale).')
-                            ->visible(function ($record, callable $get) {
-                                // Lors de la création : visible si le toggle est sur "simple"
-                                if (!$record) {
-                                    return $get('product_type') === 'simple';
-                                }
-                                // Lors de l'édition : visible si le produit n'a pas de variantes de couleur
-                                return $record->colorVariants()->count() === 0;
-                            })
-                            ->disabled(fn ($record) => $record && $record->colorVariants()->count() > 0)
-                            ->required(function ($record, callable $get) {
-                                // Requis uniquement lors de la création si le type est "simple"
-                                if (!$record) {
-                                    return $get('product_type') === 'simple';
-                                }
-                                return false; // Pas requis lors de l'édition (peut être modifié après)
-                            })
-                            ->afterStateUpdated(function ($state, $livewire) {
-                                // Si une couleur principale est définie, s'assurer qu'il n'y a pas de variantes de couleur
-                                if ($state && $livewire->record) {
-                                    $product = $livewire->record;
-                                    if ($product->colorVariants()->count() > 0) {
-                                        \Filament\Notifications\Notification::make()
-                                            ->title('Erreur')
-                                            ->body('Un produit ne peut pas avoir à la fois une couleur principale et des variantes de couleur.')
-                                            ->danger()
-                                            ->send();
-                                        return null;
-                                    }
-                                }
-                            }),
+                Forms\Components\Select::make('primary_color_parent_id')
+                    ->label('Couleur principale')
+                    ->options(function ($record) {
+                        // Si on édite, récupérer la couleur principale de la couleur fabricant existante
+                        if ($record && $record->primaryColor && $record->primaryColor->parent_id) {
+                            $parent = \App\Models\PrimaryColor::find($record->primaryColor->parent_id);
+                            if ($parent) {
+                                return [$parent->id => $parent->name];
+                            }
+                        }
+                        return \App\Models\PrimaryColor::whereNull('parent_id')
+                            ->whereNull('manufacturer_id')
+                            ->orderBy('name')
+                            ->pluck('name', 'id');
+                    })
+                    ->searchable()
+                    ->preload()
+                    ->reactive()
+                    ->required()
+                    ->dehydrated(false)
+                    ->afterStateHydrated(function ($component, $record) {
+                        if ($record && $record->primaryColor && $record->primaryColor->parent_id) {
+                            $component->state($record->primaryColor->parent_id);
+                        }
+                    })
+                    ->visible(function ($record, callable $get) {
+                        // Lors de la création : visible si le toggle est sur "simple"
+                        if (!$record) {
+                            return $get('product_type') === 'simple';
+                        }
+                        // Lors de l'édition : visible si le produit n'a pas de variantes de couleur
+                        return $record->colorVariants()->count() === 0;
+                    })
+                    ->helperText('Sélectionnez d\'abord une couleur principale'),
+                
+                Forms\Components\Select::make('primary_color_id')
+                    ->label('Couleur fabricant')
+                    ->options(function ($get, $record) {
+                        $manufacturerId = $record?->manufacturer_id ?? null;
+                        $parentId = $get('primary_color_parent_id');
+                        
+                        // Si on édite et qu'il n'y a pas de parent sélectionné, utiliser celui de la couleur existante
+                        if (!$parentId && $record && $record->primaryColor && $record->primaryColor->parent_id) {
+                            $parentId = $record->primaryColor->parent_id;
+                        }
+                        
+                        if (!$parentId) {
+                            return [];
+                        }
+                        
+                        $query = \App\Models\PrimaryColor::where('parent_id', $parentId)
+                            ->whereNotNull('manufacturer_id');
+                        
+                        if ($manufacturerId) {
+                            $query->where('manufacturer_id', $manufacturerId);
+                        }
+                        
+                        return $query->orderBy('name')
+                            ->get()
+                            ->mapWithKeys(function ($color) {
+                                $manufacturer = $color->manufacturer?->name ?? '';
+                                $label = $manufacturer ? "{$color->name} ({$manufacturer})" : $color->name;
+                                return [$color->id => $label];
+                            });
+                    })
+                    ->searchable()
+                    ->preload()
+                    ->reactive()
+                    ->visible(function ($get, $record) {
+                        $parentId = $get('primary_color_parent_id');
+                        if (!$parentId && $record && $record->primaryColor && $record->primaryColor->parent_id) {
+                            return true;
+                        }
+                        if (!$record) {
+                            return $get('product_type') === 'simple' && !empty($parentId);
+                        }
+                        return $record->colorVariants()->count() === 0 && !empty($parentId);
+                    })
+                    ->disabled(fn ($record) => $record && $record->colorVariants()->count() > 0)
+                    ->helperText('Sélectionnez ensuite la couleur fabricant correspondant à la couleur principale et au fabricant du produit')
+                    ->afterStateUpdated(function ($state, $livewire) {
+                        // Si une couleur fabricant est définie, s'assurer qu'il n'y a pas de variantes de couleur
+                        if ($state && $livewire->record) {
+                            $product = $livewire->record;
+                            if ($product->colorVariants()->count() > 0) {
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Erreur')
+                                    ->body('Un produit ne peut pas avoir à la fois une couleur fabricant et des variantes de couleur.')
+                                    ->danger()
+                                    ->send();
+                                return null;
+                            }
+                        }
+                    }),
                         Forms\Components\Placeholder::make('variant_info')
                             ->label('')
                             ->content(function (callable $get) {
@@ -150,7 +205,7 @@ class ProductResource extends Resource
                                             ✅ Produit simple sélectionné
                                         </p>
                                         <p class="text-sm text-green-700 dark:text-green-300">
-                                            Définissez une couleur principale ci-dessus. Vous pourrez ensuite ajouter des variantes de taille dans l\'onglet "Variantes de taille".
+                                            Définissez une couleur fabricant ci-dessus. Vous pourrez ensuite ajouter des variantes de taille dans l\'onglet "Variantes de taille".
                                         </p>
                                     </div>'
                                 );

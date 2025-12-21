@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ProductSizeVariant extends Model
 {
@@ -72,6 +73,6 @@ class ProductSizeVariant extends Model
      */
     public function variantPrices(): HasMany
     {
-        return $this->hasMany(ProductVariantPrice::class);
+        return $this->hasMany(ProductVariantPrice::class, 'product_size_variant_id');
     }
 }
