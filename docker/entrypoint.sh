@@ -56,7 +56,23 @@ fi
 echo "Running database migrations..."
 php /var/www/html/artisan migrate --force
 
-# Clear and optimize caches
+# Publish Swagger assets BEFORE caching routes (so routes are registered)
+echo "Publishing Swagger assets..."
+php /var/www/html/artisan vendor:publish --provider="L5Swagger\L5SwaggerServiceProvider" --tag="l5-swagger-assets" --force 2>/dev/null || {
+    echo "Swagger assets publish failed, copying manually..."
+    # Fallback: copy assets manually if publish command fails
+    if [ -d "/var/www/html/vendor/swagger-api/swagger-ui/dist" ]; then
+        mkdir -p /var/www/html/public/vendor/swagger-api/swagger-ui/dist
+        cp -r /var/www/html/vendor/swagger-api/swagger-ui/dist/* /var/www/html/public/vendor/swagger-api/swagger-ui/dist/ 2>/dev/null || true
+        chown -R www-data:www-data /var/www/html/public/vendor 2>/dev/null || true
+    fi
+}
+
+# Generate Swagger documentation
+echo "Generating API documentation..."
+php /var/www/html/artisan l5-swagger:generate 2>/dev/null || echo "Swagger generation skipped"
+
+# Clear and optimize caches (after Swagger is set up)
 echo "Optimizing application..."
 php /var/www/html/artisan config:cache
 php /var/www/html/artisan route:cache
@@ -69,18 +85,6 @@ if [ ! -L /var/www/html/public/storage ]; then
     echo "Creating storage link..."
     php /var/www/html/artisan storage:link
 fi
-
-# Publish Swagger assets (if not already published)
-if [ ! -d "/var/www/html/public/vendor/swagger-api/swagger-ui" ]; then
-    echo "Publishing Swagger assets..."
-    php /var/www/html/artisan vendor:publish --provider="L5Swagger\L5SwaggerServiceProvider" --tag="l5-swagger-assets" --force 2>/dev/null || echo "Swagger assets publish skipped"
-else
-    echo "Swagger assets already published"
-fi
-
-# Generate Swagger documentation
-echo "Generating API documentation..."
-php /var/www/html/artisan l5-swagger:generate 2>/dev/null || echo "Swagger generation skipped"
 
 echo "=============================================="
 echo "  Startup complete - Starting services"
