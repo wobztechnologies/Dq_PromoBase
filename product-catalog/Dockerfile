@@ -59,6 +59,7 @@ RUN apk add --no-cache \
     supervisor \
     curl \
     git \
+    gettext \
     libpng-dev \
     libjpeg-turbo-dev \
     libwebp-dev \
@@ -140,12 +141,13 @@ RUN mkdir -p /var/www/html/storage/logs \
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Expose port
-EXPOSE 80
+# Railway uses PORT environment variable
+ENV PORT=80
+EXPOSE ${PORT}
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost/health || exit 1
+    CMD curl -f http://localhost:${PORT}/health || exit 1
 
 # Start supervisor
 ENTRYPOINT ["/entrypoint.sh"]

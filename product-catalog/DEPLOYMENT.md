@@ -1,16 +1,14 @@
 # 🚀 Guide de Déploiement - Product Catalog
 
-Ce guide explique comment déployer l'application Product Catalog sur **EasyPanel** depuis GitHub.
+Ce guide explique comment déployer l'application Product Catalog sur **Railway** depuis GitHub.
 
 ## 📋 Prérequis
 
-- Compte EasyPanel avec un serveur configuré
+- Compte [Railway](https://railway.app)
 - Repository GitHub avec le code source
 - Services externes configurés :
-  - Base de données PostgreSQL
-  - Redis (optionnel, recommandé pour les queues)
-  - MeiliSearch (pour la recherche)
   - Compte AWS S3 (pour le stockage des fichiers)
+  - Clés API pour les services 3D (Fal, Meshy)
 
 ---
 
@@ -18,18 +16,19 @@ Ce guide explique comment déployer l'application Product Catalog sur **EasyPane
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    EasyPanel Server                          │
+│                      Railway Project                         │
+│                                                              │
 │  ┌─────────────────────────────────────────────────────┐    │
-│  │              Product Catalog Container               │    │
+│  │           Product Catalog (Docker)                   │    │
 │  │  ┌──────────┐  ┌──────────┐  ┌──────────────────┐  │    │
 │  │  │  Nginx   │  │ PHP-FPM  │  │  Queue Workers   │  │    │
-│  │  │  :80     │  │  :9000   │  │  (Supervisor)    │  │    │
+│  │  │  :$PORT  │  │  :9000   │  │  (Supervisor)    │  │    │
 │  │  └──────────┘  └──────────┘  └──────────────────┘  │    │
 │  └─────────────────────────────────────────────────────┘    │
 │                              │                               │
 │  ┌───────────┐  ┌───────────┐  ┌───────────────────────┐   │
 │  │ PostgreSQL│  │   Redis   │  │     MeiliSearch       │   │
-│  │  :5432    │  │   :6379   │  │       :7700           │   │
+│  │  (Plugin) │  │  (Plugin) │  │      (Service)        │   │
 │  └───────────┘  └───────────┘  └───────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -42,40 +41,40 @@ Ce guide explique comment déployer l'application Product Catalog sur **EasyPane
 
 ---
 
-## 🛠️ Configuration EasyPanel
+## 🛠️ Configuration Railway
 
-### 1. Créer les Services Requis
+### Étape 1 : Créer un nouveau projet
+
+1. Connectez-vous à [Railway](https://railway.app)
+2. Cliquez sur **"New Project"**
+3. Sélectionnez **"Deploy from GitHub repo"**
+4. Autorisez Railway à accéder à votre repo
+5. Sélectionnez le repository `product-catalog`
+
+### Étape 2 : Ajouter les services de base de données
 
 #### PostgreSQL
-1. Dans EasyPanel, créer un nouveau service **PostgreSQL**
-2. Noter les informations de connexion :
-   - Host: `postgres` (ou le nom du service)
-   - Port: `5432`
-   - Database: `product_catalog`
-   - Username: `postgres`
-   - Password: `<généré automatiquement>`
+1. Dans votre projet, cliquez sur **"+ New"**
+2. Sélectionnez **"Database"** → **"Add PostgreSQL"**
+3. Railway crée automatiquement les variables :
+   - `DATABASE_URL`
+   - `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`
 
 #### Redis
-1. Créer un nouveau service **Redis**
-2. Noter l'host: `redis`
+1. Cliquez sur **"+ New"**
+2. Sélectionnez **"Database"** → **"Add Redis"**
+3. Railway crée automatiquement :
+   - `REDIS_URL`
 
-#### MeiliSearch
-1. Créer un nouveau service **MeiliSearch**
-2. Définir une Master Key sécurisée
-3. Noter l'host: `http://meilisearch:7700`
+#### MeiliSearch (optionnel)
+1. Cliquez sur **"+ New"** → **"Docker Image"**
+2. Image : `getmeili/meilisearch:latest`
+3. Ajoutez la variable : `MEILI_MASTER_KEY=votre_master_key`
+4. Port : `7700`
 
-### 2. Créer l'Application Laravel
+### Étape 3 : Configurer les variables d'environnement
 
-1. **Créer une nouvelle App** dans EasyPanel
-2. **Source**: GitHub
-3. **Repository**: Sélectionner votre repo
-4. **Branch**: `main` (ou votre branche de production)
-5. **Build**: Dockerfile
-6. **Port**: `80`
-
-### 3. Variables d'Environnement
-
-Configurer les variables suivantes dans EasyPanel :
+Cliquez sur votre service principal → **Variables** → **"Raw Editor"** et ajoutez :
 
 ```env
 # Application
@@ -83,92 +82,106 @@ APP_NAME="Product Catalog"
 APP_ENV=production
 APP_KEY=base64:VOTRE_CLE_GENEREE
 APP_DEBUG=false
-APP_URL=https://votre-domaine.com
+APP_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}
 APP_TIMEZONE=Europe/Paris
 
-# Logging
-LOG_CHANNEL=stack
-LOG_LEVEL=error
-
-# Database
+# Database (Railway les injecte automatiquement, mais on peut mapper)
 DB_CONNECTION=pgsql
-DB_HOST=postgres
-DB_PORT=5432
-DB_DATABASE=product_catalog
-DB_USERNAME=postgres
-DB_PASSWORD=VOTRE_MOT_DE_PASSE
+DB_HOST=${{Postgres.PGHOST}}
+DB_PORT=${{Postgres.PGPORT}}
+DB_DATABASE=${{Postgres.PGDATABASE}}
+DB_USERNAME=${{Postgres.PGUSER}}
+DB_PASSWORD=${{Postgres.PGPASSWORD}}
 
-# Redis
-REDIS_CLIENT=predis
-REDIS_HOST=redis
-REDIS_PASSWORD=null
-REDIS_PORT=6379
+# Redis (Railway injecte automatiquement)
+REDIS_URL=${{Redis.REDIS_URL}}
+REDIS_HOST=${{Redis.REDISHOST}}
+REDIS_PORT=${{Redis.REDISPORT}}
+REDIS_PASSWORD=${{Redis.REDISPASSWORD}}
 
 # Queue
 QUEUE_CONNECTION=database
 
 # Session & Cache
 SESSION_DRIVER=redis
-SESSION_LIFETIME=120
 CACHE_STORE=redis
 
-# MeiliSearch
+# MeiliSearch (si configuré)
 SCOUT_DRIVER=meilisearch
-MEILISEARCH_HOST=http://meilisearch:7700
-MEILISEARCH_KEY=VOTRE_MASTER_KEY
+MEILISEARCH_HOST=http://${{MeiliSearch.RAILWAY_PRIVATE_DOMAIN}}:7700
+MEILISEARCH_KEY=votre_master_key
 
 # AWS S3
-AWS_ACCESS_KEY_ID=VOTRE_ACCESS_KEY
-AWS_SECRET_ACCESS_KEY=VOTRE_SECRET_KEY
+AWS_ACCESS_KEY_ID=votre_access_key
+AWS_SECRET_ACCESS_KEY=votre_secret_key
 AWS_DEFAULT_REGION=eu-west-3
 AWS_BUCKET=votre-bucket
 AWS_USE_PATH_STYLE_ENDPOINT=false
 
 # Services IA (3D Generation)
-FAL_API_KEY=VOTRE_FAL_KEY
-MESHY_API_KEY=VOTRE_MESHY_KEY
+FAL_API_KEY=votre_fal_key
+MESHY_API_KEY=votre_meshy_key
 
 # JWT (pour l'API externe)
-JWT_SECRET=VOTRE_JWT_SECRET
+JWT_SECRET=votre_jwt_secret
 JWT_TTL=60
 JWT_REFRESH_TTL=20160
 
-# Mail (optionnel)
-MAIL_MAILER=smtp
-MAIL_HOST=smtp.mailgun.org
-MAIL_PORT=587
-MAIL_USERNAME=
-MAIL_PASSWORD=
-MAIL_ENCRYPTION=tls
-MAIL_FROM_ADDRESS="noreply@votre-domaine.com"
-MAIL_FROM_NAME="${APP_NAME}"
+# Logging
+LOG_CHANNEL=stack
+LOG_LEVEL=error
 ```
 
-### 4. Générer les Clés
+### Étape 4 : Générer les clés secrètes
+
+Exécutez ces commandes localement pour générer les clés :
 
 ```bash
-# Générer APP_KEY (exécuter localement)
+# Générer APP_KEY
 php artisan key:generate --show
+# Résultat : base64:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
-# Générer JWT_SECRET (exécuter localement)
+# Générer JWT_SECRET
 php artisan jwt:secret --show
+# Résultat : xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
+
+### Étape 5 : Configurer le domaine
+
+1. Allez dans **Settings** de votre service
+2. Dans **Networking**, cliquez sur **"Generate Domain"**
+3. Vous obtiendrez une URL du type : `product-catalog-production.up.railway.app`
+4. Optionnel : Ajoutez un domaine personnalisé
 
 ---
 
-## 📦 Structure des Fichiers Docker
+## 📁 Fichiers de Configuration Railway
 
+### `railway.toml`
+```toml
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+```
+
+### Structure Docker
 ```
 docker/
 ├── entrypoint.sh       # Script de démarrage
 ├── nginx/
-│   ├── nginx.conf      # Configuration Nginx principale
-│   └── default.conf    # Configuration du virtual host
+│   ├── nginx.conf      # Configuration Nginx
+│   └── default.conf    # Virtual host (port dynamique)
 ├── php/
 │   ├── php.ini         # Configuration PHP
-│   └── opcache.ini     # Configuration OPcache
+│   └── opcache.ini     # OPcache optimisé
 └── supervisor/
-    └── supervisord.conf # Configuration Supervisor
+    └── supervisord.conf # Nginx + PHP-FPM + Queue Workers
 ```
 
 ---
@@ -177,51 +190,88 @@ docker/
 
 ### Déploiement Automatique
 
-1. **Push sur GitHub** → EasyPanel détecte le changement
+1. **Push sur GitHub** → Railway détecte le changement
 2. **Build Docker** → Construction de l'image
-3. **Démarrage** → Le conteneur exécute :
-   - Migrations automatiques
-   - Optimisation des caches
-   - Génération de la doc API
-   - Démarrage de Nginx, PHP-FPM et Workers
+3. **Démarrage du conteneur** :
+   - Substitution du PORT dynamique Railway
+   - Attente de la connexion à la base de données
+   - Exécution des migrations
+   - Optimisation des caches Laravel
+   - Démarrage de Supervisor (Nginx, PHP-FPM, Workers)
 
 ### Déploiement Manuel
 
-Dans EasyPanel, cliquer sur **"Deploy"** pour forcer un redéploiement.
+Dans Railway → Service → **"Deploy"** → **"Trigger Deploy"**
 
 ---
 
 ## 🔧 Commandes Utiles
 
-### Accéder au Shell du Conteneur
+### Accéder au Shell
 
-Dans EasyPanel → App → Terminal :
-
-```bash
-# Vérifier le statut des services
-supervisorctl status
-
-# Relancer les workers de queue
-supervisorctl restart queue-worker:*
-
-# Exécuter des commandes Artisan
-php artisan migrate:status
-php artisan queue:work --once
-php artisan cache:clear
-```
-
-### Logs
+Railway ne permet pas d'accéder directement au shell du conteneur en cours d'exécution.  
+Utilisez **Railway CLI** pour exécuter des commandes :
 
 ```bash
-# Logs Laravel
-tail -f /var/www/html/storage/logs/laravel.log
+# Installer Railway CLI
+npm install -g @railway/cli
 
-# Logs Queue Worker
-tail -f /var/www/html/storage/logs/queue-worker.log
+# Se connecter
+railway login
 
-# Logs Scheduler
-tail -f /var/www/html/storage/logs/scheduler.log
+# Lier le projet
+railway link
+
+# Exécuter une commande
+railway run php artisan migrate:status
+railway run php artisan queue:work --once
+railway run php artisan cache:clear
 ```
+
+### Voir les logs
+
+Dans Railway → Service → **"Logs"**
+
+Ou via CLI :
+```bash
+railway logs
+railway logs --follow
+```
+
+---
+
+## 📊 Monitoring
+
+### Health Check
+
+L'application expose un endpoint :
+```
+GET /health → 200 OK
+```
+
+Railway utilise ce endpoint pour vérifier l'état du service.
+
+### Métriques Railway
+
+Railway fournit automatiquement :
+- **CPU** et **RAM** usage
+- **Network** I/O
+- **Request** metrics
+- **Deployment** history
+
+---
+
+## 💰 Coûts Estimés (Railway)
+
+| Service | Estimation mensuelle |
+|---------|---------------------|
+| App (512MB RAM) | ~$5-10 |
+| PostgreSQL | ~$5-10 |
+| Redis | ~$5 |
+| MeiliSearch | ~$5-10 |
+| **Total** | **~$20-35/mois** |
+
+Railway facture à l'usage avec un crédit gratuit de $5/mois.
 
 ---
 
@@ -231,80 +281,94 @@ tail -f /var/www/html/storage/logs/scheduler.log
 
 - [ ] `APP_DEBUG=false`
 - [ ] `APP_ENV=production`
-- [ ] Clés API sécurisées (non exposées)
-- [ ] HTTPS activé (via EasyPanel/Traefik)
-- [ ] Permissions de fichiers correctes
-- [ ] Logs d'erreurs non exposés publiquement
+- [ ] Clés API dans les variables Railway (jamais dans le code)
+- [ ] HTTPS automatique via Railway
+- [ ] Variables sensibles marquées comme "secret" dans Railway
 
-### Headers de Sécurité
+### Variables Sensibles
 
-Les headers suivants sont configurés automatiquement via Nginx :
-- `X-Frame-Options: SAMEORIGIN`
-- `X-Content-Type-Options: nosniff`
-- `X-XSS-Protection: 1; mode=block`
-- `Referrer-Policy: strict-origin-when-cross-origin`
-
----
-
-## 📊 Monitoring
-
-### Health Check
-
-L'application expose un endpoint de santé :
-```
-GET /health → 200 OK
-```
-
-EasyPanel utilise ce endpoint pour vérifier l'état du conteneur.
-
-### Métriques Recommandées
-
-- CPU/RAM du conteneur
-- Temps de réponse des requêtes
-- Taille de la queue
-- Erreurs 5xx
+Dans Railway, cliquez sur l'icône 🔒 à côté d'une variable pour la masquer :
+- `APP_KEY`
+- `DB_PASSWORD`
+- `JWT_SECRET`
+- `AWS_SECRET_ACCESS_KEY`
+- `FAL_API_KEY`
+- `MESHY_API_KEY`
 
 ---
 
 ## 🐛 Dépannage
 
-### Le conteneur ne démarre pas
+### Le build échoue
 
-1. Vérifier les logs de build dans EasyPanel
-2. Vérifier que toutes les variables d'environnement sont définies
-3. Vérifier la connexion à la base de données
+1. Vérifiez les logs de build dans Railway
+2. Assurez-vous que le Dockerfile est correct
+3. Vérifiez que toutes les dépendances sont listées
 
-### Erreurs 502 Bad Gateway
+### Erreur de connexion à la base de données
 
-1. PHP-FPM n'est pas démarré
-2. Vérifier les logs Supervisor : `supervisorctl status`
+1. Vérifiez que PostgreSQL est bien démarré
+2. Vérifiez les variables de connexion (utilisez les références `${{Postgres.XXX}}`)
+3. L'entrypoint attend automatiquement la DB (30 tentatives)
 
-### Les jobs ne s'exécutent pas
+### Les jobs de queue ne s'exécutent pas
 
-1. Vérifier que les workers sont actifs : `supervisorctl status queue-worker:*`
-2. Vérifier les logs : `/var/www/html/storage/logs/queue-worker.log`
+1. Vérifiez que Supervisor est actif dans les logs
+2. Vérifiez `QUEUE_CONNECTION=database`
+3. Les workers sont gérés par Supervisor automatiquement
 
-### Problèmes de permissions
+### Erreurs 502 / Service unavailable
 
-```bash
-chown -R www-data:www-data /var/www/html/storage
-chmod -R 775 /var/www/html/storage
-```
+1. Le conteneur est peut-être en cours de démarrage
+2. Vérifiez le health check (`/health`)
+3. Augmentez le `healthcheckTimeout` dans `railway.toml`
+
+### Problèmes de mémoire
+
+1. Augmentez la RAM dans Railway Settings
+2. Optimisez les requêtes lourdes
+3. Réduisez le nombre de workers de queue si nécessaire
 
 ---
 
-## 📚 Ressources
+## 🔗 Liens Utiles
 
+- [Documentation Railway](https://docs.railway.app)
+- [Railway CLI](https://docs.railway.app/develop/cli)
+- [Railway Discord](https://discord.gg/railway)
 - [Documentation Laravel](https://laravel.com/docs)
-- [Documentation Filament](https://filamentphp.com/docs)
-- [Documentation EasyPanel](https://easypanel.io/docs)
 - [API Documentation](/api/documentation) - Swagger UI
+
+---
+
+## 📝 Commandes Artisan Importantes
+
+```bash
+# Migrations
+railway run php artisan migrate --force
+railway run php artisan migrate:status
+
+# Cache
+railway run php artisan config:cache
+railway run php artisan route:cache
+railway run php artisan view:cache
+railway run php artisan optimize
+
+# Queue
+railway run php artisan queue:work --once
+railway run php artisan queue:retry all
+
+# Maintenance
+railway run php artisan down --secret="votre-secret"
+railway run php artisan up
+```
 
 ---
 
 ## 🆘 Support
 
 En cas de problème :
-1. Consulter les logs de l'application
-2. Vérifier le statut des services dépendants
-3. Contacter l'équipe de développement
+1. Consultez les logs dans Railway Dashboard
+2. Vérifiez le statut des services (PostgreSQL, Redis)
+3. Utilisez Railway CLI pour debug
+4. Contactez le support Railway ou l'équipe de développement
