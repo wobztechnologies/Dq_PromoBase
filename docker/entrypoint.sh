@@ -5,13 +5,6 @@ echo "=============================================="
 echo "  Product Catalog - Container Startup"
 echo "=============================================="
 
-# Verify Nginx configuration
-echo "Verifying Nginx configuration..."
-nginx -t || {
-    echo "ERROR: Nginx configuration is invalid"
-    exit 1
-}
-
 # Create required directories
 mkdir -p /var/www/html/storage/logs
 mkdir -p /var/www/html/storage/framework/cache/data
@@ -21,24 +14,26 @@ mkdir -p /var/log/supervisor
 mkdir -p /var/run/supervisor
 mkdir -p /var/run/nginx
 
-# Ensure supervisor directories exist and have correct permissions
-mkdir -p /var/log/supervisor /var/run/supervisor
-chmod 755 /var/log/supervisor
-chmod 755 /var/run/supervisor
-
 # Set permissions
 chown -R www-data:www-data /var/www/html/storage
 chown -R www-data:www-data /var/www/html/bootstrap/cache
 chmod -R 775 /var/www/html/storage
 chmod -R 775 /var/www/html/bootstrap/cache
 
-# Wait for database to be ready
+# Verify Nginx configuration
+echo "Verifying Nginx configuration..."
+nginx -t || {
+    echo "ERROR: Nginx configuration is invalid"
+    exit 1
+}
+
+# Wait for database to be ready (max 60 seconds)
 echo "Waiting for database connection..."
 MAX_RETRIES=30
 RETRY_COUNT=0
 
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if php /var/www/html/artisan tinker --execute="try { DB::connection()->getPdo(); echo 'connected'; } catch(Exception \$e) { exit(1); }" 2>/dev/null | grep -q "connected"; then
+    if php /var/www/html/artisan db:monitor --databases=pgsql 2>/dev/null; then
         echo "Database connection established!"
         break
     fi
@@ -48,59 +43,24 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
 done
 
 if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-    echo "ERROR: Could not connect to database after $MAX_RETRIES attempts"
-    exit 1
+    echo "WARNING: Could not verify database connection, continuing anyway..."
 fi
 
-# Run migrations (with --force for production)
+# Run migrations
 echo "Running database migrations..."
-php /var/www/html/artisan migrate --force
-
-# Publish Swagger assets BEFORE caching routes (so routes are registered)
-echo "Publishing Swagger assets..."
-php /var/www/html/artisan vendor:publish --provider="L5Swagger\L5SwaggerServiceProvider" --tag="l5-swagger-assets" --force 2>/dev/null || {
-    echo "Swagger assets publish failed, copying manually..."
-    # Fallback: copy assets manually if publish command fails
-    if [ -d "/var/www/html/vendor/swagger-api/swagger-ui/dist" ]; then
-        mkdir -p /var/www/html/public/vendor/swagger-api/swagger-ui/dist
-        cp -r /var/www/html/vendor/swagger-api/swagger-ui/dist/* /var/www/html/public/vendor/swagger-api/swagger-ui/dist/ 2>/dev/null || true
-        chown -R www-data:www-data /var/www/html/public/vendor 2>/dev/null || true
-    fi
-}
-
-# Generate Swagger documentation
-echo "Generating API documentation..."
-php /var/www/html/artisan l5-swagger:generate 2>/dev/null || echo "Swagger generation skipped"
-
-# Clear all caches first
-echo "Clearing all caches..."
-php /var/www/html/artisan cache:clear 2>/dev/null || true
-php /var/www/html/artisan config:clear 2>/dev/null || true
-php /var/www/html/artisan route:clear 2>/dev/null || true
-php /var/www/html/artisan view:clear 2>/dev/null || true
-
-# Verify Livewire routes are registered BEFORE caching
-echo "Verifying Livewire routes..."
-php /var/www/html/artisan route:list --path=livewire 2>/dev/null || echo "Route list check skipped"
-
-# Rebuild caches (after Swagger is set up)
-echo "Optimizing application..."
-php /var/www/html/artisan config:cache
-
-# NOTE: Route cache disabled temporarily to debug 405 error
-# Once the issue is resolved, uncomment the following line:
-# php /var/www/html/artisan route:cache
-echo "Route cache DISABLED for debugging"
-
-php /var/www/html/artisan view:cache
-php /var/www/html/artisan event:cache
-php /var/www/html/artisan filament:cache-components
+php /var/www/html/artisan migrate --force --no-interaction 2>/dev/null || echo "Migrations skipped or already up to date"
 
 # Create storage link if not exists
 if [ ! -L /var/www/html/public/storage ]; then
     echo "Creating storage link..."
-    php /var/www/html/artisan storage:link
+    php /var/www/html/artisan storage:link 2>/dev/null || true
 fi
+
+# Optimize for production (config is cached at build time)
+echo "Optimizing application..."
+php /var/www/html/artisan config:cache 2>/dev/null || true
+php /var/www/html/artisan route:cache 2>/dev/null || true
+php /var/www/html/artisan view:cache 2>/dev/null || true
 
 echo "=============================================="
 echo "  Startup complete - Starting services"

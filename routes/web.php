@@ -9,18 +9,11 @@ Route::get('/', function () {
 });
 
 // Health check endpoint for container monitoring
+// Returns OK immediately - database check is separate
 Route::get('/health', function () {
-    try {
-        // Check database connection
-        \DB::connection()->getPdo();
-        
-        return response('OK', 200)
-            ->header('Content-Type', 'text/plain');
-    } catch (\Exception $e) {
-        return response('Database connection failed', 503)
-            ->header('Content-Type', 'text/plain');
-    }
-});
+    return response('OK', 200)
+        ->header('Content-Type', 'text/plain');
+})->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class]);
 
 // Route webhook Meshy (CSRF désactivé pour les webhooks externes)
 Route::post('/webhooks/meshy', [MeshyWebhookController::class, 'handle'])

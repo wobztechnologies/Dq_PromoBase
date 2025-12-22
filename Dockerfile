@@ -1,6 +1,6 @@
 # =============================================================================
 # PRODUCT CATALOG - Production Dockerfile
-# Optimized for EasyPanel deployment
+# Optimized for Railway deployment
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -38,11 +38,11 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 
 # Install dependencies
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 # Copy source files needed for build
 COPY resources ./resources
-COPY vite.config.js postcss.config.js ./
+COPY vite.config.js postcss.config.js tailwind.config.js ./
 COPY --from=composer-builder /app/vendor ./vendor
 
 # Build frontend assets
@@ -58,8 +58,6 @@ RUN apk add --no-cache \
     nginx \
     supervisor \
     curl \
-    git \
-    gettext \
     libpng-dev \
     libjpeg-turbo-dev \
     libwebp-dev \
@@ -73,35 +71,26 @@ RUN apk add --no-cache \
     $PHPIZE_DEPS
 
 # Configure and install PHP extensions
-RUN docker-php-ext-configure gd \
-    --with-jpeg \
-    --with-webp \
-    --with-freetype
-
-RUN docker-php-ext-install \
-    pdo \
-    pdo_pgsql \
-    pgsql \
-    gd \
-    zip \
-    mbstring \
-    xml \
-    bcmath \
-    intl \
-    opcache \
-    pcntl
-
-# Install Swoole for Laravel Octane
-RUN pecl install swoole && \
-    docker-php-ext-enable swoole
+RUN docker-php-ext-configure gd --with-jpeg --with-webp --with-freetype \
+    && docker-php-ext-install -j$(nproc) \
+        pdo \
+        pdo_pgsql \
+        pgsql \
+        gd \
+        zip \
+        mbstring \
+        xml \
+        bcmath \
+        intl \
+        opcache \
+        pcntl
 
 # Install Redis extension
-RUN pecl install redis && \
-    docker-php-ext-enable redis
+RUN pecl install redis && docker-php-ext-enable redis
 
-# Clean up
-RUN apk del $PHPIZE_DEPS linux-headers && \
-    rm -rf /var/cache/apk/* /tmp/*
+# Clean up build dependencies
+RUN apk del $PHPIZE_DEPS linux-headers \
+    && rm -rf /var/cache/apk/* /tmp/*
 
 # PHP configuration for production
 RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
@@ -124,31 +113,31 @@ WORKDIR /var/www/html
 COPY --from=composer-builder /app .
 COPY --from=node-builder /app/public/build ./public/build
 
-# Set permissions
-RUN chown -R www-data:www-data /var/www/html \
-    && chmod -R 755 /var/www/html/storage \
-    && chmod -R 755 /var/www/html/bootstrap/cache
-
 # Create required directories
-RUN mkdir -p /var/www/html/storage/logs \
-    && mkdir -p /var/www/html/storage/framework/cache \
-    && mkdir -p /var/www/html/storage/framework/sessions \
-    && mkdir -p /var/www/html/storage/framework/views \
+RUN mkdir -p storage/logs \
+    && mkdir -p storage/framework/cache/data \
+    && mkdir -p storage/framework/sessions \
+    && mkdir -p storage/framework/views \
+    && mkdir -p storage/api-docs \
     && mkdir -p /var/run/nginx \
     && mkdir -p /var/log/supervisor \
-    && mkdir -p /var/run/supervisor \
-    && chown -R www-data:www-data /var/www/html/storage
+    && mkdir -p /var/run/supervisor
+
+# Set permissions
+RUN chown -R www-data:www-data /var/www/html \
+    && chmod -R 775 storage \
+    && chmod -R 775 bootstrap/cache
 
 # Copy and set entrypoint
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Fixed port for Railway (Railway will map PORT env to 8080)
+# Fixed port for Railway
 ENV PORT=8080
 EXPOSE 8080
 
-# Health check - increased start-period to allow migrations and cache optimization
-HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+# Simplified health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
 # Start supervisor
