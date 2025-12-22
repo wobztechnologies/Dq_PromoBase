@@ -11,15 +11,19 @@ mkdir -p /var/log/supervisor
 mkdir -p /var/run/supervisor
 mkdir -p /var/run/nginx
 
-# Set permissions
+# Set permissions - critical for sessions and cache
 chown -R www-data:www-data /var/www/html/storage 2>/dev/null || true
 chown -R www-data:www-data /var/www/html/bootstrap/cache 2>/dev/null || true
 chmod -R 775 /var/www/html/storage 2>/dev/null || true
 chmod -R 775 /var/www/html/bootstrap/cache 2>/dev/null || true
 
-# Ensure session directory is writable
-chmod -R 775 /var/www/html/storage/framework/sessions 2>/dev/null || true
+# Ensure session directory is writable (critical for login)
+chmod -R 777 /var/www/html/storage/framework/sessions 2>/dev/null || true
 chown -R www-data:www-data /var/www/html/storage/framework/sessions 2>/dev/null || true
+
+# Ensure cache directories are writable
+chmod -R 777 /var/www/html/storage/framework/cache 2>/dev/null || true
+chmod -R 777 /var/www/html/storage/framework/views 2>/dev/null || true
 
 # Validate Nginx configuration
 nginx -t || {
