@@ -22,3 +22,4 @@ class EditApiUser extends EditRecord
         return $this->getResource()::getUrl('index');
     }
 }
+

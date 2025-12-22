@@ -100,3 +100,4 @@ class ManufacturerColorController extends Controller
         ]);
     }
 }
+

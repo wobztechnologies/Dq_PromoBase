@@ -74,3 +74,4 @@ class PrimaryColorController extends Controller
         ]);
     }
 }
+

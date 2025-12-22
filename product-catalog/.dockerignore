@@ -1,0 +1,60 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.idea
+.vscode
+.fleet
+.zed
+*.swp
+*.swo
+
+# Node
+node_modules
+npm-debug.log
+
+# Dependencies (will be installed in container)
+vendor
+
+# Build artifacts
+public/build
+public/hot
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Storage (will be mounted as volume)
+storage/app/public/*
+storage/app/private/*
+storage/app/training/*
+storage/logs/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+!storage/**/.gitignore
+
+# Testing
+tests
+phpunit.xml
+.phpunit.result.cache
+.phpunit.cache
+coverage
+
+# Documentation
+*.md
+!README.md
+ML_TRAINING.md
+
+# Development files
+docker-compose.yml
+Homestead.yaml
+Homestead.json
+
+# Misc
+*.log
+.DS_Store
+Thumbs.db

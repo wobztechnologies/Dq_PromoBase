@@ -29,3 +29,4 @@ class UpdateApiUserLastUsed
         return $response;
     }
 }
+

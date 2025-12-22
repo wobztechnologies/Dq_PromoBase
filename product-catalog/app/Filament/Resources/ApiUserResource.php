@@ -171,3 +171,4 @@ class ApiUserResource extends Resource
         ];
     }
 }
+

@@ -75,3 +75,4 @@ class ApiUser extends Authenticatable implements JWTSubject
         $this->update(['last_used_at' => now()]);
     }
 }
+
