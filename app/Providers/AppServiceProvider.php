@@ -26,12 +26,21 @@ class AppServiceProvider extends ServiceProvider
         if (app()->environment('production')) {
             \Illuminate\Support\Facades\URL::forceScheme('https');
             
-            // Always enable secure cookies in production (Railway uses HTTPS)
-            config(['session.secure' => true]);
-            config(['session.same_site' => 'lax']);
+            // Configure secure cookies for HTTPS
+            // Check if request is secure via proxy headers
+            $request = request();
+            $isSecure = $request->secure() || 
+                       $request->header('X-Forwarded-Proto') === 'https' ||
+                       $request->server('HTTPS') === 'on';
             
-            // Ensure cookies work correctly with Railway's proxy
+            if ($isSecure) {
+                config(['session.secure' => true]);
+            }
+            config(['session.same_site' => 'lax']);
             config(['session.domain' => null]); // Use default domain
+            
+            // Ensure session cookie name is consistent
+            config(['session.cookie' => env('SESSION_COOKIE', 'laravel_session')]);
         }
     }
 }
