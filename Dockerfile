@@ -132,13 +132,16 @@ RUN chown -R www-data:www-data /var/www/html \
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Fixed port for Railway
+# Railway provides PORT dynamically via environment variable
+# Default to 8080 if not set (for local development)
 ENV PORT=8080
 EXPOSE 8080
 
-# Simple PHP health check (bypasses Laravel)
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:8080/up.php || exit 1
+# Healthcheck endpoint
+# Railway uses /health from railway.toml, Docker uses /up.php
+# Both are configured in Nginx
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:${PORT:-8080}/up.php || exit 1
 
 # Start supervisor
 ENTRYPOINT ["/entrypoint.sh"]

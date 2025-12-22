@@ -4,6 +4,12 @@ use Illuminate\Http\Request;
 
 define('LARAVEL_START', microtime(true));
 
+// Enable error reporting for debugging
+error_reporting(E_ALL);
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
+ini_set('error_log', '/dev/stderr');
+
 // Determine if the application is in maintenance mode...
 if (file_exists($maintenance = __DIR__.'/../storage/framework/maintenance.php')) {
     require $maintenance;
@@ -16,13 +22,14 @@ require __DIR__.'/../vendor/autoload.php';
 try {
     $app = require_once __DIR__.'/../bootstrap/app.php';
     
-    $kernel = $app->make(\Illuminate\Contracts\Http\Kernel::class);
+    if (!$app) {
+        throw new RuntimeException('Failed to bootstrap Laravel application');
+    }
     
+    // Use the standard Laravel 12 method
     $request = Request::capture();
-    $response = $kernel->handle($request);
-    $response->send();
+    $app->handleRequest($request);
     
-    $kernel->terminate($request, $response);
 } catch (Throwable $e) {
     // Log error to stderr (visible in Railway logs)
     error_log("FATAL ERROR: " . $e->getMessage());

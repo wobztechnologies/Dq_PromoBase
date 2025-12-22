@@ -4,9 +4,17 @@ dockerfilePath = "Dockerfile"
 watchPatterns = ["**/*"]
 
 [deploy]
+# Railway healthcheck endpoint
+# This endpoint is handled by Laravel route /health in routes/web.php
 healthcheckPath = "/health"
 healthcheckTimeout = 300
+# Alternative: use simple PHP endpoint for faster checks
+# healthcheckPath = "/up.php"
+
+# Start command - Supervisor manages all services
 startCommand = "/usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf"
+
+# Restart policy
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
 numReplicas = 1
