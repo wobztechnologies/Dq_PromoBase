@@ -476,19 +476,45 @@ class Models3DRelationManager extends RelationManager
                         }
                         
                         // 4. Vérifier qu'il n'y a pas déjà un modèle avec un status bloquant
+                        // La vérification dépend du mode sélectionné
                         $product = $livewire->getOwnerRecord();
                         $blockingStatuses = \App\Models\ProductModel3D::getBlockingStatuses();
-                        $existingModel = \App\Models\ProductModel3D::where('product_id', $product->id)
-                            ->whereIn('status', $blockingStatuses)
-                            ->first();
+                        $mode = $data['mode'] ?? 'general';
+                        $colorVariantId = $data['color_variant_id'] ?? null;
                         
-                        if ($existingModel) {
-                            \Filament\Notifications\Notification::make()
-                                ->title('Génération impossible')
-                                ->body('Un modèle 3D existe déjà avec le statut "' . $existingModel->status . '". Vous ne pouvez pas lancer une nouvelle génération.')
-                                ->warning()
-                                ->send();
-                            return;
+                        if ($mode === 'general') {
+                            // Mode général : vérifier s'il existe un modèle 3D "général" (sans variante associée)
+                            $existingModel = \App\Models\ProductModel3D::where('product_id', $product->id)
+                                ->whereIn('status', $blockingStatuses)
+                                ->whereDoesntHave('colorVariants') // Modèle sans variante = modèle général
+                                ->first();
+                            
+                            if ($existingModel) {
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Génération impossible')
+                                    ->body('Un modèle 3D général existe déjà avec le statut "' . $existingModel->status . '". Vous ne pouvez pas lancer une nouvelle génération en mode général.')
+                                    ->warning()
+                                    ->send();
+                                return;
+                            }
+                        } else {
+                            // Mode variant : vérifier s'il existe un modèle 3D pour cette variante spécifique
+                            $existingModel = \App\Models\ProductModel3D::where('product_id', $product->id)
+                                ->whereIn('status', $blockingStatuses)
+                                ->whereHas('colorVariants', function ($query) use ($colorVariantId) {
+                                    $query->where('product_color_variants.id', $colorVariantId);
+                                })
+                                ->first();
+                            
+                            if ($existingModel) {
+                                $variant = \App\Models\ProductColorVariant::find($colorVariantId);
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Génération impossible')
+                                    ->body('Un modèle 3D existe déjà pour la variante "' . ($variant->sku ?? 'N/A') . '" avec le statut "' . $existingModel->status . '". Vous ne pouvez pas lancer une nouvelle génération pour cette variante.')
+                                    ->warning()
+                                    ->send();
+                                return;
+                            }
                         }
                         
                         // 5. Préparer les données pour l'API
