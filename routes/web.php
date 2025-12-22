@@ -18,7 +18,7 @@ Route::get('/health', function () {
 // Route webhook Meshy (CSRF désactivé pour les webhooks externes)
 Route::post('/webhooks/meshy', [MeshyWebhookController::class, 'handle'])
     ->middleware('web')
-    ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class]);
+    ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class]);
 
 // Route pour récupérer les grilles de prix d'une variante
 Route::get('/admin/product-variant-prices/{id}/price-tiers', function ($id) {
