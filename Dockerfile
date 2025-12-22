@@ -143,13 +143,13 @@ RUN mkdir -p /var/www/html/storage/logs \
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Railway uses PORT environment variable
-ENV PORT=80
-EXPOSE ${PORT}
+# Fixed port for Railway (Railway will map PORT env to 8080)
+ENV PORT=8080
+EXPOSE 8080
 
 # Health check - increased start-period to allow migrations and cache optimization
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-    CMD curl -f http://localhost:${PORT}/health || exit 1
+    CMD curl -f http://localhost:8080/health || exit 1
 
 # Start supervisor
 ENTRYPOINT ["/entrypoint.sh"]

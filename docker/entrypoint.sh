@@ -5,13 +5,6 @@ echo "=============================================="
 echo "  Product Catalog - Container Startup"
 echo "=============================================="
 
-# Set default PORT if not defined (Railway provides this)
-export PORT=${PORT:-80}
-echo "Using PORT: $PORT"
-
-# Substitute PORT variable in Nginx config using sed
-sed -i "s/\${PORT}/$PORT/g" /etc/nginx/http.d/default.conf
-
 # Verify Nginx configuration
 echo "Verifying Nginx configuration..."
 nginx -t || {
