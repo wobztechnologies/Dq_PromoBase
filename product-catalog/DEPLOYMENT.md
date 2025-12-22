@@ -49,7 +49,27 @@ Ce guide explique comment déployer l'application Product Catalog sur **Railway*
 2. Cliquez sur **"New Project"**
 3. Sélectionnez **"Deploy from GitHub repo"**
 4. Autorisez Railway à accéder à votre repo
-5. Sélectionnez le repository `product-catalog`
+5. Sélectionnez le repository
+
+### ⚠️ Étape 1bis : Configurer le Root Directory (IMPORTANT)
+
+Si votre projet Laravel est dans un sous-dossier (ex: `product-catalog/`), vous devez configurer le **Root Directory** :
+
+1. Cliquez sur votre service dans Railway
+2. Allez dans l'onglet **"Settings"**
+3. Dans la section **"Source"**, trouvez **"Root Directory"**
+4. Entrez le chemin du sous-dossier : `product-catalog`
+5. Cliquez sur **"Redeploy"**
+
+```
+📁 Votre repo GitHub
+├── product-catalog/     ← Root Directory à configurer
+│   ├── Dockerfile
+│   ├── railway.toml
+│   ├── app/
+│   ├── ...
+└── .DS_Store
+```
 
 ### Étape 2 : Ajouter les services de base de données
 
