@@ -72,10 +72,26 @@ php /var/www/html/artisan vendor:publish --provider="L5Swagger\L5SwaggerServiceP
 echo "Generating API documentation..."
 php /var/www/html/artisan l5-swagger:generate 2>/dev/null || echo "Swagger generation skipped"
 
-# Clear and optimize caches (after Swagger is set up)
+# Clear all caches first
+echo "Clearing all caches..."
+php /var/www/html/artisan cache:clear 2>/dev/null || true
+php /var/www/html/artisan config:clear 2>/dev/null || true
+php /var/www/html/artisan route:clear 2>/dev/null || true
+php /var/www/html/artisan view:clear 2>/dev/null || true
+
+# Verify Livewire routes are registered BEFORE caching
+echo "Verifying Livewire routes..."
+php /var/www/html/artisan route:list --path=livewire 2>/dev/null || echo "Route list check skipped"
+
+# Rebuild caches (after Swagger is set up)
 echo "Optimizing application..."
 php /var/www/html/artisan config:cache
-php /var/www/html/artisan route:cache
+
+# NOTE: Route cache disabled temporarily to debug 405 error
+# Once the issue is resolved, uncomment the following line:
+# php /var/www/html/artisan route:cache
+echo "Route cache DISABLED for debugging"
+
 php /var/www/html/artisan view:cache
 php /var/www/html/artisan event:cache
 php /var/www/html/artisan filament:cache-components
