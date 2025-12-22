@@ -123,10 +123,11 @@ RUN mkdir -p storage/logs \
     && mkdir -p /var/log/supervisor \
     && mkdir -p /var/run/supervisor
 
-# Set permissions
+# Set permissions - use 777 for storage to ensure writability
+# www-data user needs write access for logs, sessions, cache, views
 RUN chown -R www-data:www-data /var/www/html \
-    && chmod -R 775 storage \
-    && chmod -R 775 bootstrap/cache
+    && chmod -R 777 storage \
+    && chmod -R 777 bootstrap/cache
 
 # Copy and set entrypoint
 COPY docker/entrypoint.sh /entrypoint.sh
