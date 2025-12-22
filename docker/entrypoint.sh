@@ -70,6 +70,14 @@ if [ ! -L /var/www/html/public/storage ]; then
     php /var/www/html/artisan storage:link
 fi
 
+# Publish Swagger assets (if not already published)
+if [ ! -d "/var/www/html/public/vendor/swagger-api/swagger-ui" ]; then
+    echo "Publishing Swagger assets..."
+    php /var/www/html/artisan vendor:publish --provider="L5Swagger\L5SwaggerServiceProvider" --tag="l5-swagger-assets" --force 2>/dev/null || echo "Swagger assets publish skipped"
+else
+    echo "Swagger assets already published"
+fi
+
 # Generate Swagger documentation
 echo "Generating API documentation..."
 php /var/www/html/artisan l5-swagger:generate 2>/dev/null || echo "Swagger generation skipped"
