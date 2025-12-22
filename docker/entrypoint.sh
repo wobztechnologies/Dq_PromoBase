@@ -17,11 +17,6 @@ chown -R www-data:www-data /var/www/html/bootstrap/cache 2>/dev/null || true
 chmod -R 775 /var/www/html/storage 2>/dev/null || true
 chmod -R 775 /var/www/html/bootstrap/cache 2>/dev/null || true
 
-# Substitute PORT variable in Nginx config
-# Railway provides PORT dynamically, default to 8080 if not set
-PORT=${PORT:-8080}
-sed -i "s/__PORT__/$PORT/g" /etc/nginx/http.d/default.conf
-
 # Validate Nginx configuration
 nginx -t || {
     echo "ERROR: Nginx configuration is invalid"
