@@ -135,6 +135,8 @@ RUN mkdir -p /var/www/html/storage/logs \
     && mkdir -p /var/www/html/storage/framework/sessions \
     && mkdir -p /var/www/html/storage/framework/views \
     && mkdir -p /var/run/nginx \
+    && mkdir -p /var/log/supervisor \
+    && mkdir -p /var/run/supervisor \
     && chown -R www-data:www-data /var/www/html/storage
 
 # Copy and set entrypoint
@@ -145,8 +147,8 @@ RUN chmod +x /entrypoint.sh
 ENV PORT=80
 EXPOSE ${PORT}
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+# Health check - increased start-period to allow migrations and cache optimization
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
     CMD curl -f http://localhost:${PORT}/health || exit 1
 
 # Start supervisor

@@ -19,7 +19,13 @@ mkdir -p /var/www/html/storage/framework/cache/data
 mkdir -p /var/www/html/storage/framework/sessions
 mkdir -p /var/www/html/storage/framework/views
 mkdir -p /var/log/supervisor
+mkdir -p /var/run/supervisor
 mkdir -p /var/run/nginx
+
+# Ensure supervisor directories exist and have correct permissions
+mkdir -p /var/log/supervisor /var/run/supervisor
+chmod 755 /var/log/supervisor
+chmod 755 /var/run/supervisor
 
 # Set permissions
 chown -R www-data:www-data /var/www/html/storage
