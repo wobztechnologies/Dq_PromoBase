@@ -9,9 +9,15 @@ echo "=============================================="
 export PORT=${PORT:-80}
 echo "Using PORT: $PORT"
 
-# Substitute environment variables in Nginx config
-envsubst '${PORT}' < /etc/nginx/http.d/default.conf > /etc/nginx/http.d/default.conf.tmp
-mv /etc/nginx/http.d/default.conf.tmp /etc/nginx/http.d/default.conf
+# Substitute PORT variable in Nginx config using sed
+sed -i "s/\${PORT}/$PORT/g" /etc/nginx/http.d/default.conf
+
+# Verify Nginx configuration
+echo "Verifying Nginx configuration..."
+nginx -t || {
+    echo "ERROR: Nginx configuration is invalid"
+    exit 1
+}
 
 # Create required directories
 mkdir -p /var/www/html/storage/logs
