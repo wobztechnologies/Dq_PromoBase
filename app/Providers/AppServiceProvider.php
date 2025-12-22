@@ -25,6 +25,10 @@ class AppServiceProvider extends ServiceProvider
         // Force HTTPS in production (Railway)
         if (app()->environment('production')) {
             \Illuminate\Support\Facades\URL::forceScheme('https');
+            
+            // Force secure cookies in production (HTTPS only)
+            config(['session.secure' => true]);
+            config(['session.same_site' => 'lax']);
         }
     }
 }
