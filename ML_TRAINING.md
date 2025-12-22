@@ -21,7 +21,7 @@ storage/app/training/images/
 └── product-only/
     ├── product-only/   # Images contenant seulement le vêtement
     └── situational/    # Images avec mise en situation (personne, environnement)
-```
+````
 
 ## 🚀 Fonctionnement
 
