@@ -5,11 +5,10 @@ watchPatterns = ["**/*"]
 
 [deploy]
 # Railway healthcheck endpoint
-# This endpoint is handled by Laravel route /health in routes/web.php
-healthcheckPath = "/health"
+# Use /up.php for faster checks (bypasses Laravel, no DB required)
+# This is faster and more reliable than /health which requires Laravel to be fully initialized
+healthcheckPath = "/up.php"
 healthcheckTimeout = 300
-# Alternative: use simple PHP endpoint for faster checks
-# healthcheckPath = "/up.php"
 
 # Start command - Supervisor manages all services
 startCommand = "/usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf"

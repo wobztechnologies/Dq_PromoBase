@@ -138,9 +138,9 @@ ENV PORT=8080
 EXPOSE 8080
 
 # Healthcheck endpoint
-# Railway uses /health from railway.toml, Docker uses /up.php
-# Both are configured in Nginx
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+# Use /up.php for fast health checks (bypasses Laravel)
+# Start period increased to allow Laravel initialization to complete
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
     CMD curl -f http://localhost:8080/up.php || exit 1
 
 # Start supervisor
