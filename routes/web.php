@@ -9,11 +9,9 @@ Route::get('/', function () {
 });
 
 // Health check endpoint for container monitoring
-// Returns OK immediately - database check is separate
 Route::get('/health', function () {
-    return response('OK', 200)
-        ->header('Content-Type', 'text/plain');
-})->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class]);
+    return response('OK', 200)->header('Content-Type', 'text/plain');
+});
 
 // Route webhook Meshy (CSRF désactivé pour les webhooks externes)
 Route::post('/webhooks/meshy', [MeshyWebhookController::class, 'handle'])

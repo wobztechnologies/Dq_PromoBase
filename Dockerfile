@@ -136,9 +136,9 @@ RUN chmod +x /entrypoint.sh
 ENV PORT=8080
 EXPOSE 8080
 
-# Simplified health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+# Simple PHP health check (bypasses Laravel)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8080/up.php || exit 1
 
 # Start supervisor
 ENTRYPOINT ["/entrypoint.sh"]
