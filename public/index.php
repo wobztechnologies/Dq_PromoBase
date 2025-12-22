@@ -1,15 +1,8 @@
 <?php
 
-use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 
 define('LARAVEL_START', microtime(true));
-
-// Enable error reporting for debugging
-error_reporting(E_ALL);
-ini_set('display_errors', 0);
-ini_set('log_errors', 1);
-ini_set('error_log', '/dev/stderr');
 
 // Determine if the application is in maintenance mode...
 if (file_exists($maintenance = __DIR__.'/../storage/framework/maintenance.php')) {
@@ -21,14 +14,15 @@ require __DIR__.'/../vendor/autoload.php';
 
 // Bootstrap Laravel and handle the request...
 try {
-    /** @var Application $app */
     $app = require_once __DIR__.'/../bootstrap/app.php';
     
+    $kernel = $app->make(\Illuminate\Contracts\Http\Kernel::class);
+    
     $request = Request::capture();
-    $response = $app->handleRequest($request);
+    $response = $kernel->handle($request);
     $response->send();
     
-    $app->terminate();
+    $kernel->terminate($request, $response);
 } catch (Throwable $e) {
     // Log error to stderr (visible in Railway logs)
     error_log("FATAL ERROR: " . $e->getMessage());
