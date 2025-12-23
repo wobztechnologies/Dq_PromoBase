@@ -27,6 +27,10 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->login()
+            ->brandName('PromoBase')
+            ->brandLogo(asset('img/pormobase.png'))
+            ->darkModeBrandLogo(asset('img/pormobase.png'))
+            ->brandLogoHeight('2.5rem')
             ->colors([
                 'primary' => Color::Amber,
             ])

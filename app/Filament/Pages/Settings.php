@@ -22,7 +22,9 @@ class Settings extends Page implements HasForms
 
     protected static ?string $navigationLabel = 'Paramètres';
 
-    protected static ?int $navigationSort = 999;
+    protected static ?string $navigationGroup = 'Administration';
+
+    protected static ?int $navigationSort = 20;
 
     public ?array $data = [];
 
