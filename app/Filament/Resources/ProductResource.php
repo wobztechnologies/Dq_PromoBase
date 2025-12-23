@@ -72,7 +72,13 @@ class ProductResource extends Resource
                             ->label('Manufacturer')
                             ->relationship('manufacturer', 'name')
                             ->searchable()
-                            ->preload(),
+                            ->preload()
+                            ->live()
+                            ->afterStateUpdated(function (Forms\Set $set) {
+                                // Réinitialiser les couleurs quand le fabricant change
+                                $set('primary_color_parent_id', null);
+                                $set('primary_color_id', null);
+                            }),
                     ])
                     ->columns(2),
                 Forms\Components\Section::make('Type de produit')
@@ -118,17 +124,26 @@ class ProductResource extends Resource
                         // Lors de l'édition : visible si le produit n'a pas de variantes de couleur
                         return $record->colorVariants()->count() === 0;
                     })
+                    ->required(fn ($record, callable $get) => 
+                        (!$record && $get('product_type') === 'simple') || 
+                        ($record && $record->colorVariants()->count() === 0)
+                    )
                     ->helperText('Sélectionnez d\'abord une couleur principale'),
                 
                 Forms\Components\Select::make('primary_color_id')
                     ->label('Couleur fabricant')
                     ->options(function ($get, $record) {
-                        $manufacturerId = $get('manufacturer_id') ?? $record?->manufacturer_id ?? null;
+                        $manufacturerId = $get('manufacturer_id');
                         $parentId = $get('primary_color_parent_id');
                         
-                        // Si on édite et qu'il n'y a pas de parent sélectionné, utiliser celui de la couleur existante
-                        if (!$parentId && $record && $record->primaryColor && $record->primaryColor->parent_id) {
-                            $parentId = $record->primaryColor->parent_id;
+                        // Si on édite et qu'il n'y a pas de valeurs dans le state, utiliser les valeurs du record
+                        if ($record) {
+                            if (!$manufacturerId) {
+                                $manufacturerId = $record->manufacturer_id;
+                            }
+                            if (!$parentId && $record->primaryColor) {
+                                $parentId = $record->primaryColor->parent_id;
+                            }
                         }
                         
                         if (!$parentId) {
@@ -143,6 +158,7 @@ class ProductResource extends Resource
                         }
                         
                         return $query->orderBy('name')
+                            ->with('manufacturer')
                             ->get()
                             ->mapWithKeys(function ($color) {
                                 $manufacturer = $color->manufacturer?->name ?? '';
@@ -151,34 +167,25 @@ class ProductResource extends Resource
                             });
                     })
                     ->searchable()
-                    ->preload()
                     ->live()
                     ->visible(function ($get, $record) {
                         $parentId = $get('primary_color_parent_id');
-                        if (!$parentId && $record && $record->primaryColor && $record->primaryColor->parent_id) {
-                            return true;
+                        
+                        // En mode édition : vérifier si le produit a des variantes de couleur
+                        if ($record) {
+                            // Ne pas afficher si le produit a des variantes de couleur
+                            if ($record->colorVariants()->count() > 0) {
+                                return false;
+                            }
+                            // Afficher si on a un parent sélectionné OU si le produit a déjà une couleur
+                            return !empty($parentId) || ($record->primaryColor && $record->primaryColor->parent_id);
                         }
-                        if (!$record) {
-                            return $get('product_type') === 'simple' && !empty($parentId);
-                        }
-                        return $record->colorVariants()->count() === 0;
+                        
+                        // En mode création : afficher si type simple et parent sélectionné
+                        return $get('product_type') === 'simple' && !empty($parentId);
                     })
                     ->disabled(fn ($record) => $record && $record->colorVariants()->count() > 0)
-                    ->helperText('Sélectionnez ensuite la couleur fabricant correspondant à la couleur principale et au fabricant du produit')
-                    ->afterStateUpdated(function ($state, $livewire) {
-                        // Si une couleur fabricant est définie, s'assurer qu'il n'y a pas de variantes de couleur
-                        if ($state && $livewire->record) {
-                            $product = $livewire->record;
-                            if ($product->colorVariants()->count() > 0) {
-                                \Filament\Notifications\Notification::make()
-                                    ->title('Erreur')
-                                    ->body('Un produit ne peut pas avoir à la fois une couleur fabricant et des variantes de couleur.')
-                                    ->danger()
-                                    ->send();
-                                return null;
-                            }
-                        }
-                    }),
+                    ->helperText('Sélectionnez ensuite la couleur fabricant correspondant à la couleur principale et au fabricant du produit'),
                         Forms\Components\Placeholder::make('variant_info')
                             ->label('')
                             ->content(function (callable $get) {

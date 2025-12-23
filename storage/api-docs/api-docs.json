@@ -744,7 +744,7 @@
                                                         }
                                                     },
                                                     "model_3d": {
-                                                        "description": "Modèle 3D associé",
+                                                        "description": "Modèle 3D associé. Pour les produits 'color_root', seul un modèle 3D général (sans variante associée) est retourné. Pour les variantes, le modèle spécifique à la variante est retourné s'il existe.",
                                                         "properties": {
                                                             "uuid": {
                                                                 "description": "UUID du modèle 3D",
@@ -958,7 +958,7 @@
                                                         }
                                                     },
                                                     "model_3d": {
-                                                        "description": "Modèle 3D associé",
+                                                        "description": "Modèle 3D associé. Pour les produits 'color_root', seul un modèle 3D général (sans variante associée) est retourné. Pour les variantes, le modèle spécifique à la variante est retourné s'il existe.",
                                                         "properties": {
                                                             "uuid": {
                                                                 "description": "UUID du modèle 3D",
