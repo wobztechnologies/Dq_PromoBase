@@ -268,9 +268,9 @@ class Models3DRelationManager extends RelationManager
                         Forms\Components\Select::make('ai_model')
                             ->label('AI Model')
                             ->options([
-                                'fal' => 'Standard Multi image',
-                                'fal-mono' => 'Standard mono image',
-                                'meshy-5' => 'Max',
+                                'fal' => 'Multi-View (3 images)',
+                                'fal-mono' => 'Hunyuan3D v2 (1 image)',
+                                'meshy-5' => 'Meshy Max',
                             ])
                             ->default('fal')
                             ->required()
@@ -309,10 +309,10 @@ class Models3DRelationManager extends RelationManager
                                 
                                 if ($aiModel === 'fal' && $count > 0) {
                                     if (!$hasBack) {
-                                        $warnings[] = '⚠️ Une image Back est requise pour Standard Multi image';
+                                        $warnings[] = '⚠️ Une image Back est requise pour Multi-View';
                                     }
                                     if (!$hasLeftOrRight) {
-                                        $warnings[] = '⚠️ Une image Left ou Right est requise pour Standard Multi image';
+                                        $warnings[] = '⚠️ Une image Left (ou Right) est requise pour Multi-View';
                                     }
                                 }
                                 
@@ -321,9 +321,9 @@ class Models3DRelationManager extends RelationManager
                                     : '';
                                 
                                 $modelInfo = match($aiModel) {
-                                    'fal' => ' (Standard Multi image: Front, Back, Left/Right requis)',
-                                    'fal-mono' => ' (Standard mono image: Front requis uniquement)',
-                                    default => ' (Max: 1-4 images)',
+                                    'fal' => ' (Multi-View: Front, Back, Left requis)',
+                                    'fal-mono' => ' (Hunyuan3D v2: Front requis uniquement)',
+                                    default => ' (Meshy Max: 1-4 images)',
                                 };
                                 
                                 return new \Illuminate\Support\HtmlString(
@@ -454,7 +454,7 @@ class Models3DRelationManager extends RelationManager
                             if (!$hasBack) {
                                 \Filament\Notifications\Notification::make()
                                     ->title('Erreur')
-                                    ->body('Pour le modèle Standard Multi image, vous devez sélectionner une image Back.')
+                                    ->body('Pour le modèle Multi-View, vous devez sélectionner une image Back.')
                                     ->danger()
                                     ->send();
                                 return;
@@ -463,14 +463,14 @@ class Models3DRelationManager extends RelationManager
                             if (!$hasLeft && !$hasRight) {
                                 \Filament\Notifications\Notification::make()
                                     ->title('Erreur')
-                                    ->body('Pour le modèle Standard Multi image, vous devez sélectionner une image Left ou Right.')
+                                    ->body('Pour le modèle Multi-View, vous devez sélectionner une image Left (ou Right en fallback).')
                                     ->danger()
                                     ->send();
                                 return;
                             }
                         }
                         
-                        // Vérification pour fal-mono (Standard mono image) - seulement Front requis
+                        // Vérification pour fal-mono (Hunyuan3D v2) - seulement Front requis
                         if ($aiModel === 'fal-mono') {
                             // Pas de vérification supplémentaire, Front est déjà vérifié plus haut
                         }
@@ -594,13 +594,13 @@ class Models3DRelationManager extends RelationManager
                             
                             // Appeler le service approprié selon le modèle AI choisi
                             if ($aiModel === 'fal') {
-                                // Utiliser Standard Multi image avec Front, Back, et Left/Right
+                                // Utiliser Hunyuan3D v2 Multi-View avec Front, Back, et Left (Right en fallback)
                                 $frontUrl = $imageUrlsMap['Front'] ?? null;
                                 $backUrl = $imageUrlsMap['Back'] ?? null;
                                 $sideUrl = $imageUrlsMap['Left'] ?? $imageUrlsMap['Right'] ?? null;
                                 
                                 if (!$frontUrl || !$backUrl || !$sideUrl) {
-                                    throw new \Exception('URLs manquantes (Front, Back, Left/Right requis)');
+                                    throw new \Exception('URLs manquantes (Front, Back, Left requis)');
                                 }
                                 
                                 $falService = new FalService();
@@ -628,7 +628,7 @@ class Models3DRelationManager extends RelationManager
                                             ->delay(now()->addSeconds(30));
                                     }
                                     
-                                    $message = 'La génération du modèle 3D a été lancée avec succès (Standard Multi image)';
+                                    $message = 'La génération du modèle 3D a été lancée avec succès (Multi-View)';
                                     if ($mode === 'variant' && $colorVariantId) {
                                         $variant = \App\Models\ProductColorVariant::find($colorVariantId);
                                         $message .= ' (Variante: ' . ($variant->sku ?? 'N/A') . ')';
@@ -643,7 +643,7 @@ class Models3DRelationManager extends RelationManager
                                     throw new \Exception($result['error'] ?? 'Erreur inconnue lors de la génération');
                                 }
                             } elseif ($aiModel === 'fal-mono') {
-                                // Utiliser Standard mono image avec une seule image Front
+                                // Utiliser Hunyuan3D v2 avec une seule image Front
                                 $frontUrl = $imageUrlsMap['Front'] ?? null;
                                 
                                 if (!$frontUrl) {
@@ -675,7 +675,7 @@ class Models3DRelationManager extends RelationManager
                                             ->delay(now()->addSeconds(30));
                                     }
                                     
-                                    $message = 'La génération du modèle 3D a été lancée avec succès (Standard mono image)';
+                                    $message = 'La génération du modèle 3D a été lancée avec succès (Hunyuan3D v2)';
                                     if ($mode === 'variant' && $colorVariantId) {
                                         $variant = \App\Models\ProductColorVariant::find($colorVariantId);
                                         $message .= ' (Variante: ' . ($variant->sku ?? 'N/A') . ')';

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\External;
 
 use App\Http\Controllers\Controller;
 use App\Models\Category;
+use App\Models\Product;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -46,7 +47,12 @@ class CategoryController extends Controller
      *                 @OA\Property(property="order", type="integer"),
      *                 @OA\Property(property="image_url", type="string", nullable=true),
      *                 @OA\Property(property="parent_uuid", type="string", nullable=true),
-     *                 @OA\Property(property="children", type="array", @OA\Items(type="object"))
+     *                 @OA\Property(property="parent_name", type="string", nullable=true, description="Nom de la catégorie parente"),
+     *                 @OA\Property(property="products_count", type="integer", description="Nombre total de produits dans cette catégorie"),
+     *                 @OA\Property(property="children", type="array", @OA\Items(
+     *                     @OA\Property(property="uuid", type="string"),
+     *                     @OA\Property(property="name", type="string")
+     *                 ), description="Liste des catégories enfants (uuid et name)")
      *             ))
      *         )
      *     ),
@@ -69,8 +75,12 @@ class CategoryController extends Controller
      */
     private function hierarchicalList(): JsonResponse
     {
-        // Récupérer toutes les catégories ordonnées par order puis path
-        $categories = Category::orderBy('order')->orderBy('path')->get();
+        // Récupérer toutes les catégories avec la relation parent et le comptage des produits
+        $categories = Category::with('parent')
+            ->withCount('products')
+            ->orderBy('order')
+            ->orderBy('path')
+            ->get();
 
         // Construire l'arbre hiérarchique
         $tree = $this->buildTree($categories);
@@ -85,10 +95,22 @@ class CategoryController extends Controller
      */
     private function flatList(): JsonResponse
     {
-        $categories = Category::orderBy('order')->orderBy('path')->get();
+        $categories = Category::with(['parent', 'children'])
+            ->withCount('products')
+            ->orderBy('order')
+            ->orderBy('path')
+            ->get();
 
         $data = $categories->map(function ($category) {
-            return $this->formatCategory($category);
+            $formatted = $this->formatCategory($category);
+            // Ajouter les children simplifiés pour la liste plate
+            $formatted['children'] = $category->children->map(function ($child) {
+                return [
+                    'uuid' => $child->id,
+                    'name' => $child->name,
+                ];
+            })->toArray();
+            return $formatted;
         });
 
         return response()->json([
@@ -105,10 +127,20 @@ class CategoryController extends Controller
 
         foreach ($categories as $category) {
             if ($category->parent_id === $parentId) {
-                $children = $this->buildTree($categories, $category->id);
+                $childrenFull = $this->buildTree($categories, $category->id);
                 
                 $item = $this->formatCategory($category);
-                $item['children'] = $children;
+                
+                // Children complets pour la récursion de l'arbre
+                $item['children'] = $childrenFull;
+                
+                // Ajouter aussi children_summary avec juste uuid et name pour référence rapide
+                $item['children_summary'] = collect($childrenFull)->map(function ($child) {
+                    return [
+                        'uuid' => $child['uuid'],
+                        'name' => $child['name'],
+                    ];
+                })->toArray();
                 
                 $tree[] = $item;
             }
@@ -140,6 +172,15 @@ class CategoryController extends Controller
             $translations = json_decode($translations, true);
         }
 
+        // Récupérer le nom du parent si disponible
+        $parentName = null;
+        if ($category->relationLoaded('parent') && $category->parent) {
+            $parentName = $category->parent->name;
+        }
+
+        // Récupérer le comptage des produits
+        $productsCount = $category->products_count ?? 0;
+
         return [
             'uuid' => $category->id,
             'name' => $category->name,
@@ -158,6 +199,8 @@ class CategoryController extends Controller
             'order' => $category->order,
             'image_url' => $imageUrl,
             'parent_uuid' => $category->parent_id,
+            'parent_name' => $parentName,
+            'products_count' => $productsCount,
         ];
     }
 }

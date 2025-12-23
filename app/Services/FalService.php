@@ -17,12 +17,13 @@ class FalService
     }
 
     /**
-     * Générer un modèle 3D à partir de 3 images (Front, Back, Left/Right)
-     * Utilise le modèle hunyuan3d/v2/multi-view/turbo
+     * Générer un modèle 3D à partir de 3 images (Front, Back, Left)
+     * Utilise le modèle Hunyuan3D v2 Multi-View (fal-ai/hunyuan3d/v2/multi-view)
+     * Documentation: https://fal.ai/models/fal-ai/hunyuan3d/v2/multi-view
      * 
      * @param string $frontImageUrl URL de l'image Front
      * @param string $backImageUrl URL de l'image Back
-     * @param string $sideImageUrl URL de l'image Left ou Right
+     * @param string $sideImageUrl URL de l'image Left
      * @param string $outputPath Chemin S3 pour sauvegarder le modèle généré (non utilisé par fal.ai directement)
      * @return array Réponse avec success, request_id, et status
      */
@@ -35,22 +36,25 @@ class FalService
 
         try {
             // Utiliser l'API de queue de fal.ai
-            // Format: https://queue.fal.run/fal-ai/hunyuan3d/v2/multi-view/turbo
-            $url = $this->baseUrl . '/fal-ai/hunyuan3d/v2/multi-view/turbo';
+            // Modèle Hunyuan3D v2 Multi-View pour génération haute qualité à partir de 3 vues
+            // Format: https://queue.fal.run/fal-ai/hunyuan3d/v2/multi-view
+            $url = $this->baseUrl . '/fal-ai/hunyuan3d/v2/multi-view';
             
-            // Le payload pour l'API Queue doit être directement dans le body, pas dans 'input'
+            // Le payload pour l'API Queue doit être directement dans le body
+            // Le modèle multi-view requiert: front_image_url, back_image_url, left_image_url
             $payload = [
                 'front_image_url' => $frontImageUrl,
                 'back_image_url' => $backImageUrl,
-                'left_image_url' => $sideImageUrl, // fal.ai accepte left ou right
-                'textured_mesh' => true, // Toujours activer textured mesh
+                'left_image_url' => $sideImageUrl,
+                'textured_mesh' => true, // Toujours activer textured mesh pour obtenir un modèle avec textures
             ];
 
-            Log::info('Fal Service - Requête Multi-View to 3D', [
+            Log::info('Fal Service - Requête Hunyuan3D v2 Multi-View to 3D', [
                 'url' => $url,
                 'front_image_url' => $frontImageUrl,
                 'back_image_url' => $backImageUrl,
-                'side_image_url' => $sideImageUrl,
+                'left_image_url' => $sideImageUrl,
+                'textured_mesh' => true,
             ]);
 
             $response = Http::timeout(60)
@@ -67,11 +71,11 @@ class FalService
             ]);
 
             if (!$response->successful()) {
-                Log::error('Fal Service - Échec Multi-View to 3D', [
+                Log::error('Fal Service - Échec Hunyuan3D v2 Multi-View', [
                     'status' => $response->status(),
                     'body' => $response->body(),
                 ]);
-                throw new \Exception('Échec de la génération du modèle 3D. Status: ' . $response->status() . ' - ' . $response->body());
+                throw new \Exception('Échec de la génération du modèle 3D (Multi-View). Status: ' . $response->status() . ' - ' . $response->body());
             }
 
             $data = $response->json();
@@ -88,7 +92,7 @@ class FalService
                 throw new \Exception('Request ID non reçu du serveur fal.ai.');
             }
 
-            Log::info('Fal Service - Génération Multi-View to 3D lancée', [
+            Log::info('Fal Service - Génération Hunyuan3D v2 Multi-View lancée', [
                 'request_id' => $requestId,
                 'status_url' => $statusUrl,
                 'response_url' => $responseUrl,
@@ -106,7 +110,7 @@ class FalService
                 'data' => $data,
             ];
         } catch (\Exception $e) {
-            Log::error('Fal Service - Erreur Multi-View to 3D', [
+            Log::error('Fal Service - Erreur Hunyuan3D v2 Multi-View', [
                 'message' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
@@ -116,7 +120,8 @@ class FalService
 
     /**
      * Générer un modèle 3D à partir d'une seule image (Front)
-     * Utilise le modèle hunyuan3d/v2/mini/turbo
+     * Utilise le modèle Hunyuan3D v2 (fal-ai/hunyuan3d/v2)
+     * Documentation: https://fal.ai/models/fal-ai/hunyuan3d/v2
      * 
      * @param string $imageUrl URL de l'image Front
      * @param string $outputPath Chemin S3 pour sauvegarder le modèle généré (non utilisé par fal.ai directement)
@@ -131,17 +136,20 @@ class FalService
 
         try {
             // Utiliser l'API de queue de fal.ai
-            // Format: https://queue.fal.run/fal-ai/hunyuan3d/v2/mini/turbo
-            $url = $this->baseUrl . '/fal-ai/hunyuan3d/v2/mini/turbo';
+            // Modèle Hunyuan3D v2 standard pour génération mono-image haute qualité
+            // Format: https://queue.fal.run/fal-ai/hunyuan3d/v2
+            $url = $this->baseUrl . '/fal-ai/hunyuan3d/v2';
             
             // Le payload pour l'API Queue doit être directement dans le body
             $payload = [
                 'image_url' => $imageUrl,
+                'textured_mesh' => true, // Toujours activer textured mesh pour obtenir un modèle avec textures
             ];
 
-            Log::info('Fal Service - Requête Image to 3D (mono)', [
+            Log::info('Fal Service - Requête Hunyuan3D v2 Image to 3D', [
                 'url' => $url,
                 'image_url' => $imageUrl,
+                'textured_mesh' => true,
             ]);
 
             $response = Http::timeout(60)

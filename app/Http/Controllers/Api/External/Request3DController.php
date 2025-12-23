@@ -60,7 +60,7 @@ class Request3DController extends Controller
      *     @OA\Response(response=401, description="Non authentifié"),
      *     @OA\Response(
      *         response=409,
-     *         description="Conflit - Modèle 3D déjà existant",
+     *         description="Conflit - Modèle 3D déjà existant (en mode général: vérifie les modèles sans variante, en mode variant: vérifie les modèles de cette variante)",
      *         @OA\JsonContent(
      *             oneOf={
      *                 @OA\Schema(
@@ -68,6 +68,12 @@ class Request3DController extends Controller
      *                     @OA\Property(property="message", type="string", example="This product is currently in processing for 3D generation, it takes less than 5 minutes, please retry later."),
      *                     @OA\Property(property="model_3d_uuid", type="string"),
      *                     @OA\Property(property="status", type="string", example="Requested")
+     *                 ),
+     *                 @OA\Schema(
+     *                     @OA\Property(property="error", type="string", example="In review"),
+     *                     @OA\Property(property="message", type="string", example="This product has a 3D model currently in review. Please wait for the review to complete."),
+     *                     @OA\Property(property="model_3d_uuid", type="string"),
+     *                     @OA\Property(property="status", type="string", example="InReview")
      *                 ),
      *                 @OA\Schema(
      *                     @OA\Property(property="error", type="string", example="Already published"),
@@ -211,7 +217,7 @@ class Request3DController extends Controller
      *     @OA\Response(response=404, description="Produit, variante ou image non trouvé"),
      *     @OA\Response(
      *         response=409,
-     *         description="Conflit - Modèle 3D déjà existant ou en cours de génération",
+     *         description="Conflit - Modèle 3D déjà existant ou en cours de génération (en mode général: vérifie les modèles sans variante, en mode variant: vérifie les modèles de cette variante)",
      *         @OA\JsonContent(
      *             oneOf={
      *                 @OA\Schema(
@@ -219,6 +225,12 @@ class Request3DController extends Controller
      *                     @OA\Property(property="message", type="string", example="This product is currently in processing for 3D generation, it takes less than 5 minutes, please retry later."),
      *                     @OA\Property(property="model_3d_uuid", type="string"),
      *                     @OA\Property(property="status", type="string", example="Requested")
+     *                 ),
+     *                 @OA\Schema(
+     *                     @OA\Property(property="error", type="string", example="In review"),
+     *                     @OA\Property(property="message", type="string", example="This product has a 3D model currently in review. Please wait for the review to complete."),
+     *                     @OA\Property(property="model_3d_uuid", type="string"),
+     *                     @OA\Property(property="status", type="string", example="InReview")
      *                 ),
      *                 @OA\Schema(
      *                     @OA\Property(property="error", type="string", example="Already published"),
@@ -435,20 +447,31 @@ class Request3DController extends Controller
     /**
      * Vérifie s'il existe déjà un modèle 3D pour le produit/variante
      * Retourne une JsonResponse d'erreur si un modèle existe, null sinon
+     * 
+     * La logique est alignée avec l'admin Filament :
+     * - Mode général : vérifie uniquement les modèles 3D sans variante associée
+     * - Mode variant : vérifie uniquement les modèles 3D de cette variante spécifique
      */
     private function checkExisting3DModel(Product $product, ?ProductColorVariant $variant, string $mode): ?JsonResponse
     {
         $existingModel = null;
+        
+        // Utiliser les mêmes statuts bloquants que l'admin Filament
+        $blockingStatuses = ProductModel3D::getBlockingStatuses();
 
         if ($mode === 'variant' && $variant) {
-            // Vérifier les modèles 3D associés à la variante
-            $existingModel = $variant->models3d()
-                ->whereIn('status', [ProductModel3D::STATUS_REQUESTED, ProductModel3D::STATUS_PUBLISHED])
+            // Mode variant : vérifier s'il existe un modèle 3D pour cette variante spécifique
+            $existingModel = ProductModel3D::where('product_id', $product->id)
+                ->whereIn('status', $blockingStatuses)
+                ->whereHas('colorVariants', function ($query) use ($variant) {
+                    $query->where('product_color_variants.id', $variant->id);
+                })
                 ->first();
         } else {
-            // Vérifier les modèles 3D du produit (mode général)
+            // Mode général : vérifier s'il existe un modèle 3D "général" (sans variante associée)
             $existingModel = ProductModel3D::where('product_id', $product->id)
-                ->whereIn('status', [ProductModel3D::STATUS_REQUESTED, ProductModel3D::STATUS_PUBLISHED])
+                ->whereIn('status', $blockingStatuses)
+                ->whereDoesntHave('colorVariants') // Modèle sans variante = modèle général
                 ->first();
         }
 
@@ -461,6 +484,15 @@ class Request3DController extends Controller
             return response()->json([
                 'error' => 'Generation in progress',
                 'message' => 'This product is currently in processing for 3D generation, it takes less than 5 minutes, please retry later.',
+                'model_3d_uuid' => $existingModel->id,
+                'status' => $existingModel->status,
+            ], 409);
+        }
+
+        if ($existingModel->status === ProductModel3D::STATUS_IN_REVIEW) {
+            return response()->json([
+                'error' => 'In review',
+                'message' => 'This product has a 3D model currently in review. Please wait for the review to complete.',
                 'model_3d_uuid' => $existingModel->id,
                 'status' => $existingModel->status,
             ], 409);

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\External;
 
 use App\Http\Controllers\Controller;
+use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductColorVariant;
 use Illuminate\Http\JsonResponse;
@@ -15,7 +16,7 @@ class ProductController extends Controller
      * @OA\Get(
      *     path="/products",
      *     summary="Liste des produits",
-     *     description="Retourne la liste des produits. Les variantes de couleur sont traitées comme des produits à part entière.",
+     *     description="Retourne la liste des produits avec 3 types: 'general' (produit simple sans variante), 'color_root' (produit parent avec variantes de couleur), 'variant' (variante de couleur). Les produits color_root ET leurs variantes sont retournés séparément.",
      *     operationId="getProducts",
      *     tags={"Produits"},
      *     security={{"bearerAuth":{}}},
@@ -52,7 +53,7 @@ class ProductController extends Controller
      *     @OA\Parameter(
      *         name="category",
      *         in="query",
-     *         description="Filtrer par UUID de catégorie",
+     *         description="Filtrer par UUID de catégorie (inclut automatiquement les produits des sous-catégories)",
      *         @OA\Schema(type="string", format="uuid")
      *     ),
      *     @OA\Response(
@@ -60,24 +61,31 @@ class ProductController extends Controller
      *         description="Liste des produits",
      *         @OA\JsonContent(
      *             @OA\Property(property="data", type="array", @OA\Items(
+     *                 @OA\Property(property="type", type="string", enum={"general", "variant"}, description="Type de ligne: 'general' pour un produit (simple ou color_root), 'variant' pour une variante de couleur"),
+     *                 @OA\Property(property="product_type", type="string", enum={"general", "color_root", "variant"}, description="Type de produit détaillé: 'general' = produit simple sans variante, 'color_root' = produit parent avec variantes de couleur, 'variant' = variante de couleur"),
      *                 @OA\Property(property="sku", type="string"),
      *                 @OA\Property(property="name", type="string"),
      *                 @OA\Property(property="category_name", type="string"),
      *                 @OA\Property(property="category_uuid", type="string"),
      *                 @OA\Property(property="manufacturer", type="string"),
-     *                 @OA\Property(property="principal_color", type="string", nullable=true),
-     *                 @OA\Property(property="manufacturer_color", type="string", nullable=true),
+     *                 @OA\Property(property="principal_color", type="string", nullable=true, description="Nom de la couleur principale"),
+     *                 @OA\Property(property="principal_color_hex", type="string", nullable=true, description="Code hexadécimal de la couleur principale (ex: #FF0000)"),
+     *                 @OA\Property(property="manufacturer_color", type="string", nullable=true, description="Nom de la couleur fabricant"),
+     *                 @OA\Property(property="manufacturer_color_hex", type="string", nullable=true, description="Code hexadécimal de la couleur fabricant"),
      *                 @OA\Property(property="images", type="array", @OA\Items(
-     *                     @OA\Property(property="url", type="string"),
-     *                     @OA\Property(property="position", type="string"),
-     *                     @OA\Property(property="neutral_background", type="boolean"),
-     *                     @OA\Property(property="product_only", type="boolean")
+     *                     @OA\Property(property="url", type="string", description="URL présignée de l'image (valide 24h)"),
+     *                     @OA\Property(property="position", type="string", enum={"Front", "Back", "Left", "Right", "Top", "Bottom", "Part Zoom"}, nullable=true, description="Position/vue de l'image"),
+     *                     @OA\Property(property="neutral_background", type="boolean", description="True si l'image a un fond neutre (blanc, gris, etc.)"),
+     *                     @OA\Property(property="product_only", type="boolean", description="True si l'image montre uniquement le produit (pas de mise en situation)")
      *                 )),
-     *                 @OA\Property(property="model_3d", type="object", nullable=true,
-     *                     @OA\Property(property="uuid", type="string"),
-     *                     @OA\Property(property="status", type="string"),
-     *                     @OA\Property(property="url", type="string", nullable=true)
-     *                 )
+     *                 @OA\Property(property="model_3d", type="object", nullable=true, description="Modèle 3D associé",
+     *                     @OA\Property(property="uuid", type="string", description="UUID du modèle 3D"),
+     *                     @OA\Property(property="status", type="string", enum={"Requested", "Error", "InReview", "Published"}, description="Statut: Requested=en cours de génération, Error=erreur, InReview=en attente de validation, Published=disponible"),
+     *                     @OA\Property(property="url", type="string", nullable=true, description="URL présignée du fichier GLB (valide 24h, null si status!=Published)")
+     *                 ),
+     *                 @OA\Property(property="variant_uuid", type="string", nullable=true, description="UUID de la variante (null si type=general)"),
+     *                 @OA\Property(property="product_uuid", type="string", description="UUID du produit parent"),
+     *                 @OA\Property(property="variants_count", type="integer", nullable=true, description="Nombre de variantes (uniquement pour product_type=color_root)")
      *             )),
      *             @OA\Property(property="meta", type="object",
      *                 @OA\Property(property="current_page", type="integer"),
@@ -100,10 +108,16 @@ class ProductController extends Controller
         $manufacturerFilter = $request->get('manufacturer');
         $categoryFilter = $request->get('category');
 
+        // Si un filtre catégorie est spécifié, récupérer toutes les catégories enfants
+        $categoryIds = null;
+        if ($categoryFilter) {
+            $categoryIds = $this->getCategoryWithChildrenIds($categoryFilter);
+        }
+
         // Collection pour stocker tous les résultats
         $allProducts = collect();
 
-        // 1. Produits simples (sans variantes de couleur)
+        // 1. Produits simples (sans variantes de couleur) - product_type = "general"
         $simpleProductsQuery = Product::whereDoesntHave('colorVariants')
             ->with(['category', 'manufacturer', 'primaryColor.parent', 'images', 'defaultModel3D']);
         
@@ -111,8 +125,8 @@ class ProductController extends Controller
         if ($manufacturerFilter) {
             $simpleProductsQuery->where('manufacturer_id', $manufacturerFilter);
         }
-        if ($categoryFilter) {
-            $simpleProductsQuery->where('category_id', $categoryFilter);
+        if ($categoryIds) {
+            $simpleProductsQuery->whereIn('category_id', $categoryIds);
         }
         if ($colorFilter) {
             $simpleProductsQuery->whereHas('primaryColor', function ($q) use ($colorFilter) {
@@ -126,10 +140,30 @@ class ProductController extends Controller
         $simpleProducts = $simpleProductsQuery->get();
         
         foreach ($simpleProducts as $product) {
-            $allProducts->push($this->formatSimpleProduct($product));
+            $allProducts->push($this->formatSimpleProduct($product, 'general'));
         }
 
-        // 2. Variantes de couleur (chaque variante = 1 produit)
+        // 2. Produits avec variantes de couleur (produits parents) - product_type = "color_root"
+        $colorRootProductsQuery = Product::has('colorVariants')
+            ->withCount('colorVariants')
+            ->with(['category', 'manufacturer', 'primaryColor.parent', 'images', 'defaultModel3D']);
+        
+        // Appliquer les filtres aux produits color_root
+        if ($manufacturerFilter) {
+            $colorRootProductsQuery->where('manufacturer_id', $manufacturerFilter);
+        }
+        if ($categoryIds) {
+            $colorRootProductsQuery->whereIn('category_id', $categoryIds);
+        }
+        // Note: les filtres de couleur ne s'appliquent pas aux color_root car la couleur est sur les variantes
+
+        $colorRootProducts = $colorRootProductsQuery->get();
+        
+        foreach ($colorRootProducts as $product) {
+            $allProducts->push($this->formatSimpleProduct($product, 'color_root'));
+        }
+
+        // 3. Variantes de couleur (chaque variante = 1 produit) - product_type = "variant"
         $variantsQuery = ProductColorVariant::with([
             'product.category',
             'product.manufacturer',
@@ -144,9 +178,9 @@ class ProductController extends Controller
                 $q->where('manufacturer_id', $manufacturerFilter);
             });
         }
-        if ($categoryFilter) {
-            $variantsQuery->whereHas('product', function ($q) use ($categoryFilter) {
-                $q->where('category_id', $categoryFilter);
+        if ($categoryIds) {
+            $variantsQuery->whereHas('product', function ($q) use ($categoryIds) {
+                $q->whereIn('category_id', $categoryIds);
             });
         }
         if ($colorFilter) {
@@ -167,7 +201,7 @@ class ProductController extends Controller
         // Pagination manuelle
         $total = $allProducts->count();
         $currentPage = (int) $request->get('page', 1);
-        $lastPage = (int) ceil($total / $perPage);
+        $lastPage = max(1, (int) ceil($total / $perPage));
         
         $paginatedData = $allProducts
             ->slice(($currentPage - 1) * $perPage, $perPage)
@@ -188,7 +222,7 @@ class ProductController extends Controller
      * @OA\Get(
      *     path="/products/search",
      *     summary="Rechercher des produits",
-     *     description="Recherche des produits par SKU ou par nom. Les variantes de couleur sont traitées comme des produits à part entière.",
+     *     description="Recherche des produits par SKU ou par nom. Retourne 3 types: 'general' (produit simple), 'color_root' (produit avec variantes), 'variant' (variante de couleur). La recherche s'effectue sur le SKU et le nom du produit/variante.",
      *     operationId="searchProducts",
      *     tags={"Produits"},
      *     security={{"bearerAuth":{}}},
@@ -216,24 +250,31 @@ class ProductController extends Controller
      *         description="Résultats de la recherche",
      *         @OA\JsonContent(
      *             @OA\Property(property="data", type="array", @OA\Items(
+     *                 @OA\Property(property="type", type="string", enum={"general", "variant"}, description="Type de ligne: 'general' pour un produit (simple ou color_root), 'variant' pour une variante de couleur"),
+     *                 @OA\Property(property="product_type", type="string", enum={"general", "color_root", "variant"}, description="Type de produit détaillé: 'general' = produit simple sans variante, 'color_root' = produit parent avec variantes de couleur, 'variant' = variante de couleur"),
      *                 @OA\Property(property="sku", type="string"),
      *                 @OA\Property(property="name", type="string"),
      *                 @OA\Property(property="category_name", type="string"),
      *                 @OA\Property(property="category_uuid", type="string"),
      *                 @OA\Property(property="manufacturer", type="string"),
-     *                 @OA\Property(property="principal_color", type="string", nullable=true),
-     *                 @OA\Property(property="manufacturer_color", type="string", nullable=true),
+     *                 @OA\Property(property="principal_color", type="string", nullable=true, description="Nom de la couleur principale"),
+     *                 @OA\Property(property="principal_color_hex", type="string", nullable=true, description="Code hexadécimal de la couleur principale (ex: #FF0000)"),
+     *                 @OA\Property(property="manufacturer_color", type="string", nullable=true, description="Nom de la couleur fabricant"),
+     *                 @OA\Property(property="manufacturer_color_hex", type="string", nullable=true, description="Code hexadécimal de la couleur fabricant"),
      *                 @OA\Property(property="images", type="array", @OA\Items(
-     *                     @OA\Property(property="url", type="string"),
-     *                     @OA\Property(property="position", type="string"),
-     *                     @OA\Property(property="neutral_background", type="boolean"),
-     *                     @OA\Property(property="product_only", type="boolean")
+     *                     @OA\Property(property="url", type="string", description="URL présignée de l'image (valide 24h)"),
+     *                     @OA\Property(property="position", type="string", enum={"Front", "Back", "Left", "Right", "Top", "Bottom", "Part Zoom"}, nullable=true, description="Position/vue de l'image"),
+     *                     @OA\Property(property="neutral_background", type="boolean", description="True si l'image a un fond neutre (blanc, gris, etc.)"),
+     *                     @OA\Property(property="product_only", type="boolean", description="True si l'image montre uniquement le produit (pas de mise en situation)")
      *                 )),
-     *                 @OA\Property(property="model_3d", type="object", nullable=true,
-     *                     @OA\Property(property="uuid", type="string"),
-     *                     @OA\Property(property="status", type="string"),
-     *                     @OA\Property(property="url", type="string", nullable=true)
-     *                 )
+     *                 @OA\Property(property="model_3d", type="object", nullable=true, description="Modèle 3D associé",
+     *                     @OA\Property(property="uuid", type="string", description="UUID du modèle 3D"),
+     *                     @OA\Property(property="status", type="string", enum={"Requested", "Error", "InReview", "Published"}, description="Statut: Requested=en cours de génération, Error=erreur, InReview=en attente de validation, Published=disponible"),
+     *                     @OA\Property(property="url", type="string", nullable=true, description="URL présignée du fichier GLB (valide 24h, null si status!=Published)")
+     *                 ),
+     *                 @OA\Property(property="variant_uuid", type="string", nullable=true, description="UUID de la variante (null si type=general)"),
+     *                 @OA\Property(property="product_uuid", type="string", description="UUID du produit parent"),
+     *                 @OA\Property(property="variants_count", type="integer", nullable=true, description="Nombre de variantes (uniquement pour product_type=color_root)")
      *             )),
      *             @OA\Property(property="meta", type="object",
      *                 @OA\Property(property="current_page", type="integer"),
@@ -269,7 +310,7 @@ class ProductController extends Controller
         // Collection pour stocker tous les résultats
         $allProducts = collect();
 
-        // 1. Produits simples (sans variantes de couleur) - recherche par SKU ou nom
+        // 1. Produits simples (sans variantes de couleur) - product_type = "general"
         $simpleProducts = Product::whereDoesntHave('colorVariants')
             ->where(function ($q) use ($searchTerm) {
                 $q->where('sku', 'ILIKE', $searchTerm)
@@ -279,10 +320,24 @@ class ProductController extends Controller
             ->get();
         
         foreach ($simpleProducts as $product) {
-            $allProducts->push($this->formatSimpleProduct($product));
+            $allProducts->push($this->formatSimpleProduct($product, 'general'));
         }
 
-        // 2. Variantes de couleur - recherche par SKU de la variante ou nom/SKU du produit parent
+        // 2. Produits avec variantes (color_root) - product_type = "color_root"
+        $colorRootProducts = Product::has('colorVariants')
+            ->where(function ($q) use ($searchTerm) {
+                $q->where('sku', 'ILIKE', $searchTerm)
+                  ->orWhere('name', 'ILIKE', $searchTerm);
+            })
+            ->withCount('colorVariants')
+            ->with(['category', 'manufacturer', 'primaryColor.parent', 'images', 'defaultModel3D'])
+            ->get();
+        
+        foreach ($colorRootProducts as $product) {
+            $allProducts->push($this->formatSimpleProduct($product, 'color_root'));
+        }
+
+        // 3. Variantes de couleur - product_type = "variant"
         $variants = ProductColorVariant::where(function ($q) use ($searchTerm) {
                 $q->where('sku', 'ILIKE', $searchTerm)
                   ->orWhereHas('product', function ($pq) use ($searchTerm) {
@@ -326,22 +381,30 @@ class ProductController extends Controller
     }
 
     /**
-     * Formate un produit simple pour la réponse API
+     * Formate un produit simple ou color_root pour la réponse API
+     * 
+     * @param Product $product
+     * @param string $productType 'general' pour produit simple, 'color_root' pour produit avec variantes
      */
-    private function formatSimpleProduct(Product $product): array
+    private function formatSimpleProduct(Product $product, string $productType = 'general'): array
     {
         $primaryColor = $product->primaryColor;
         $principalColorName = null;
+        $principalColorHex = null;
         $manufacturerColorName = null;
+        $manufacturerColorHex = null;
 
         if ($primaryColor) {
             if ($primaryColor->parent_id) {
                 // C'est une couleur fabricant
                 $manufacturerColorName = $primaryColor->name;
+                $manufacturerColorHex = $primaryColor->hex_code;
                 $principalColorName = $primaryColor->parent?->name;
+                $principalColorHex = $primaryColor->parent?->hex_code;
             } else {
                 // C'est une couleur principale
                 $principalColorName = $primaryColor->name;
+                $principalColorHex = $primaryColor->hex_code;
             }
         }
 
@@ -367,17 +430,30 @@ class ProductController extends Controller
             ];
         }
 
-        return [
+        $result = [
+            'type' => 'general',
+            'product_type' => $productType,
             'sku' => $product->sku,
             'name' => $product->name,
             'category_name' => $product->category?->name,
             'category_uuid' => $product->category_id,
             'manufacturer' => $product->manufacturer?->name,
             'principal_color' => $principalColorName,
+            'principal_color_hex' => $principalColorHex,
             'manufacturer_color' => $manufacturerColorName,
+            'manufacturer_color_hex' => $manufacturerColorHex,
             'images' => $images,
             'model_3d' => $model3d,
+            'variant_uuid' => null,
+            'product_uuid' => $product->id,
         ];
+
+        // Ajouter le nombre de variantes pour les color_root
+        if ($productType === 'color_root') {
+            $result['variants_count'] = $product->color_variants_count ?? 0;
+        }
+
+        return $result;
     }
 
     /**
@@ -389,16 +465,21 @@ class ProductController extends Controller
         $primaryColor = $variant->primaryColor;
         
         $principalColorName = null;
+        $principalColorHex = null;
         $manufacturerColorName = null;
+        $manufacturerColorHex = null;
 
         if ($primaryColor) {
             if ($primaryColor->parent_id) {
                 // C'est une couleur fabricant
                 $manufacturerColorName = $primaryColor->name;
+                $manufacturerColorHex = $primaryColor->hex_code;
                 $principalColorName = $primaryColor->parent?->name;
+                $principalColorHex = $primaryColor->parent?->hex_code;
             } else {
                 // C'est une couleur principale
                 $principalColorName = $primaryColor->name;
+                $principalColorHex = $primaryColor->hex_code;
             }
         }
 
@@ -436,15 +517,21 @@ class ProductController extends Controller
         }
 
         return [
+            'type' => 'variant',
+            'product_type' => 'variant',
             'sku' => $variant->sku ?? $product->sku,
             'name' => $product->name,
             'category_name' => $product->category?->name,
             'category_uuid' => $product->category_id,
             'manufacturer' => $product->manufacturer?->name,
             'principal_color' => $principalColorName,
+            'principal_color_hex' => $principalColorHex,
             'manufacturer_color' => $manufacturerColorName,
+            'manufacturer_color_hex' => $manufacturerColorHex,
             'images' => $images,
             'model_3d' => $model3d,
+            'variant_uuid' => $variant->id,
+            'product_uuid' => $product->id,
         ];
     }
 
@@ -462,6 +549,33 @@ class ProductController extends Controller
         } catch (\Exception $e) {
             return Storage::disk('s3')->url($s3Path);
         }
+    }
+
+    /**
+     * Récupère l'ID de la catégorie et tous les IDs de ses sous-catégories (récursivement)
+     * Utilise le champ path (ltree) pour une recherche efficace
+     * 
+     * @param string $categoryId UUID de la catégorie parente
+     * @return array Liste des UUIDs de la catégorie et de toutes ses sous-catégories
+     */
+    private function getCategoryWithChildrenIds(string $categoryId): array
+    {
+        // Récupérer la catégorie parente pour obtenir son path
+        $parentCategory = Category::find($categoryId);
+        
+        if (!$parentCategory) {
+            return [$categoryId]; // Si la catégorie n'existe pas, retourner juste l'ID
+        }
+
+        // Utiliser le path ltree pour trouver toutes les sous-catégories
+        // Le path de la catégorie parente est inclus dans le path de toutes ses sous-catégories
+        // Exemple: si parent.path = "abc", les enfants ont path = "abc.def", "abc.def.ghi", etc.
+        $categoryIds = Category::where('id', $categoryId)
+            ->orWhere('path', 'LIKE', $parentCategory->path . '.%')
+            ->pluck('id')
+            ->toArray();
+
+        return $categoryIds;
     }
 }
 
