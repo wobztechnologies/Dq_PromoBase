@@ -25,6 +25,12 @@ class CategoryController extends Controller
      *         description="Si true, retourne une liste plate au lieu d'une structure hiérarchique",
      *         @OA\Schema(type="boolean", default=false)
      *     ),
+     *     @OA\Parameter(
+     *         name="root_only",
+     *         in="query",
+     *         description="Si true, retourne uniquement les catégories racines (niveau 1, sans parent)",
+     *         @OA\Schema(type="boolean", default=false)
+     *     ),
      *     @OA\Response(
      *         response=200,
      *         description="Liste des catégories",
@@ -62,12 +68,43 @@ class CategoryController extends Controller
     public function index(Request $request): JsonResponse
     {
         $flat = filter_var($request->get('flat', false), FILTER_VALIDATE_BOOLEAN);
+        $rootOnly = filter_var($request->get('root_only', false), FILTER_VALIDATE_BOOLEAN);
+
+        if ($rootOnly) {
+            return $this->rootCategoriesList();
+        }
 
         if ($flat) {
             return $this->flatList();
         }
 
         return $this->hierarchicalList();
+    }
+
+    /**
+     * Retourne uniquement les catégories racines (niveau 1, sans parent)
+     */
+    private function rootCategoriesList(): JsonResponse
+    {
+        // Récupérer uniquement les catégories racines (sans parent)
+        $categories = Category::whereNull('parent_id')
+            ->orderBy('order')
+            ->orderBy('name')
+            ->get();
+
+        // Calculer le comptage des produits incluant les sous-catégories
+        $this->calculateProductsCountWithChildren($categories);
+
+        $data = $categories->map(function ($category) {
+            $formatted = $this->formatCategory($category);
+            // Pour les catégories racines, on ajoute le nombre d'enfants directs
+            $formatted['children_count'] = Category::where('parent_id', $category->id)->count();
+            return $formatted;
+        });
+
+        return response()->json([
+            'data' => $data,
+        ]);
     }
 
     /**
