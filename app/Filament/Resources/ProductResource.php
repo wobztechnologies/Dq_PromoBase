@@ -84,21 +84,14 @@ class ProductResource extends Resource
                                 'variant' => 'Produit variant (avec variantes de couleur)',
                             ])
                             ->default('simple')
-                            ->reactive()
+                            ->live()
                             ->required()
                             ->helperText('Choisissez le type de produit : simple (une seule couleur fabricant) ou variant (plusieurs variantes de couleur)')
                             ->visible(fn ($record) => !$record) // Visible uniquement lors de la création
                             ->dehydrated(false), // Ne pas sauvegarder ce champ dans la base de données
                 Forms\Components\Select::make('primary_color_parent_id')
                     ->label('Couleur principale')
-                    ->options(function ($record) {
-                        // Si on édite, récupérer la couleur principale de la couleur fabricant existante
-                        if ($record && $record->primaryColor && $record->primaryColor->parent_id) {
-                            $parent = \App\Models\PrimaryColor::find($record->primaryColor->parent_id);
-                            if ($parent) {
-                                return [$parent->id => $parent->name];
-                            }
-                        }
+                    ->options(function () {
                         return \App\Models\PrimaryColor::whereNull('parent_id')
                             ->whereNull('manufacturer_id')
                             ->orderBy('name')
@@ -106,13 +99,16 @@ class ProductResource extends Resource
                     })
                     ->searchable()
                     ->preload()
-                    ->reactive()
-                    ->required()
+                    ->live()
                     ->dehydrated(false)
                     ->afterStateHydrated(function ($component, $record) {
                         if ($record && $record->primaryColor && $record->primaryColor->parent_id) {
                             $component->state($record->primaryColor->parent_id);
                         }
+                    })
+                    ->afterStateUpdated(function ($state, Forms\Set $set) {
+                        // Réinitialiser la couleur fabricant quand la couleur principale change
+                        $set('primary_color_id', null);
                     })
                     ->visible(function ($record, callable $get) {
                         // Lors de la création : visible si le toggle est sur "simple"
@@ -127,7 +123,7 @@ class ProductResource extends Resource
                 Forms\Components\Select::make('primary_color_id')
                     ->label('Couleur fabricant')
                     ->options(function ($get, $record) {
-                        $manufacturerId = $record?->manufacturer_id ?? null;
+                        $manufacturerId = $get('manufacturer_id') ?? $record?->manufacturer_id ?? null;
                         $parentId = $get('primary_color_parent_id');
                         
                         // Si on édite et qu'il n'y a pas de parent sélectionné, utiliser celui de la couleur existante
@@ -156,7 +152,7 @@ class ProductResource extends Resource
                     })
                     ->searchable()
                     ->preload()
-                    ->reactive()
+                    ->live()
                     ->visible(function ($get, $record) {
                         $parentId = $get('primary_color_parent_id');
                         if (!$parentId && $record && $record->primaryColor && $record->primaryColor->parent_id) {
@@ -165,7 +161,7 @@ class ProductResource extends Resource
                         if (!$record) {
                             return $get('product_type') === 'simple' && !empty($parentId);
                         }
-                        return $record->colorVariants()->count() === 0 && !empty($parentId);
+                        return $record->colorVariants()->count() === 0;
                     })
                     ->disabled(fn ($record) => $record && $record->colorVariants()->count() > 0)
                     ->helperText('Sélectionnez ensuite la couleur fabricant correspondant à la couleur principale et au fabricant du produit')
@@ -210,8 +206,7 @@ class ProductResource extends Resource
                                     </div>'
                                 );
                             })
-                            ->visible(fn ($record) => !$record) // Visible uniquement lors de la création
-                            ->reactive(),
+                            ->visible(fn ($record) => !$record), // Visible uniquement lors de la création
                     ])
                     ->collapsible()
                     ->collapsed(false),
