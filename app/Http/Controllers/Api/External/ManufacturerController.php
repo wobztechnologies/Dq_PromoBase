@@ -14,7 +14,7 @@ class ManufacturerController extends Controller
      * @OA\Get(
      *     path="/manufacturers",
      *     summary="Liste des fabricants",
-     *     description="Retourne la liste des fabricants avec leurs UUID",
+     *     description="Retourne la liste des fabricants qui ont au moins un produit",
      *     operationId="getManufacturers",
      *     tags={"Fabricants"},
      *     security={{"bearerAuth":{}}},
@@ -25,7 +25,8 @@ class ManufacturerController extends Controller
      *             @OA\Property(property="data", type="array", @OA\Items(
      *                 @OA\Property(property="uuid", type="string"),
      *                 @OA\Property(property="name", type="string"),
-     *                 @OA\Property(property="logo_url", type="string", nullable=true)
+     *                 @OA\Property(property="logo_url", type="string", nullable=true),
+     *                 @OA\Property(property="products_count", type="integer", description="Nombre de produits de ce fabricant")
      *             ))
      *         )
      *     ),
@@ -34,7 +35,11 @@ class ManufacturerController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $manufacturers = Manufacturer::orderBy('name')->get();
+        // Ne récupérer que les fabricants qui ont au moins un produit
+        $manufacturers = Manufacturer::has('products')
+            ->withCount('products')
+            ->orderBy('name')
+            ->get();
 
         $data = $manufacturers->map(function ($manufacturer) {
             $logoUrl = null;
@@ -50,6 +55,7 @@ class ManufacturerController extends Controller
                 'uuid' => $manufacturer->id,
                 'name' => $manufacturer->name,
                 'logo_url' => $logoUrl,
+                'products_count' => $manufacturer->products_count,
             ];
         });
 

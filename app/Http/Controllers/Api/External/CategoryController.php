@@ -48,7 +48,7 @@ class CategoryController extends Controller
      *                 @OA\Property(property="image_url", type="string", nullable=true),
      *                 @OA\Property(property="parent_uuid", type="string", nullable=true),
      *                 @OA\Property(property="parent_name", type="string", nullable=true, description="Nom de la catégorie parente"),
-     *                 @OA\Property(property="products_count", type="integer", description="Nombre total de produits dans cette catégorie"),
+     *                 @OA\Property(property="products_count", type="integer", description="Nombre total de produits dans cette catégorie ET ses sous-catégories"),
      *                 @OA\Property(property="children", type="array", @OA\Items(
      *                     @OA\Property(property="uuid", type="string"),
      *                     @OA\Property(property="name", type="string")
@@ -75,12 +75,14 @@ class CategoryController extends Controller
      */
     private function hierarchicalList(): JsonResponse
     {
-        // Récupérer toutes les catégories avec la relation parent et le comptage des produits
+        // Récupérer toutes les catégories avec la relation parent
         $categories = Category::with('parent')
-            ->withCount('products')
             ->orderBy('order')
             ->orderBy('path')
             ->get();
+
+        // Calculer le comptage des produits incluant les sous-catégories pour chaque catégorie
+        $this->calculateProductsCountWithChildren($categories);
 
         // Construire l'arbre hiérarchique
         $tree = $this->buildTree($categories);
@@ -96,10 +98,12 @@ class CategoryController extends Controller
     private function flatList(): JsonResponse
     {
         $categories = Category::with(['parent', 'children'])
-            ->withCount('products')
             ->orderBy('order')
             ->orderBy('path')
             ->get();
+
+        // Calculer le comptage des produits incluant les sous-catégories pour chaque catégorie
+        $this->calculateProductsCountWithChildren($categories);
 
         $data = $categories->map(function ($category) {
             $formatted = $this->formatCategory($category);
@@ -116,6 +120,26 @@ class CategoryController extends Controller
         return response()->json([
             'data' => $data,
         ]);
+    }
+
+    /**
+     * Calcule le nombre de produits pour chaque catégorie, incluant les sous-catégories
+     * Utilise le champ path (ltree) pour une requête efficace
+     */
+    private function calculateProductsCountWithChildren($categories): void
+    {
+        foreach ($categories as $category) {
+            // Compter les produits de cette catégorie ET de toutes ses sous-catégories
+            // En utilisant le path: si category.path = "abc", les sous-catégories ont path = "abc.xxx"
+            $count = Product::where('category_id', $category->id)
+                ->orWhereHas('category', function ($query) use ($category) {
+                    $query->where('path', 'LIKE', $category->path . '.%');
+                })
+                ->count();
+            
+            // Stocker le comptage dans un attribut dynamique
+            $category->products_count = $count;
+        }
     }
 
     /**
