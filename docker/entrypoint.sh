@@ -11,6 +11,11 @@ mkdir -p /var/log/supervisor
 mkdir -p /var/run/supervisor
 mkdir -p /var/run/nginx
 
+# OPcache file cache directory - ensure it's clean on container start
+mkdir -p /tmp/opcache
+rm -rf /tmp/opcache/* 2>/dev/null || true
+chmod 777 /tmp/opcache
+
 # Set permissions - critical for sessions, cache, and logs
 # Use 777 to ensure everything is writable (www-data runs PHP-FPM)
 chmod -R 777 /var/www/html/storage 2>/dev/null || true

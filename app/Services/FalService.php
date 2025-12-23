@@ -38,15 +38,19 @@ class FalService
             // Utiliser l'API de queue de fal.ai
             // Modèle Hunyuan3D v2 Multi-View pour génération haute qualité à partir de 3 vues
             // Format: https://queue.fal.run/fal-ai/hunyuan3d/v2/multi-view
+            // Documentation: https://fal.ai/models/fal-ai/hunyuan3d/v2/multi-view/api
             $url = $this->baseUrl . '/fal-ai/hunyuan3d/v2/multi-view';
             
             // Le payload pour l'API Queue doit être directement dans le body
-            // Le modèle multi-view requiert: front_image_url, back_image_url, left_image_url
+            // Paramètres requis: front_image_url, back_image_url, left_image_url
             $payload = [
                 'front_image_url' => $frontImageUrl,
                 'back_image_url' => $backImageUrl,
                 'left_image_url' => $sideImageUrl,
-                'textured_mesh' => true, // Toujours activer textured mesh pour obtenir un modèle avec textures
+                'textured_mesh' => true, // Activer textured mesh pour obtenir un modèle avec textures (coût x3)
+                'num_inference_steps' => 50, // Valeur par défaut recommandée
+                'guidance_scale' => 7.5, // Valeur par défaut recommandée
+                'octree_resolution' => 256, // Valeur par défaut recommandée
             ];
 
             Log::info('Fal Service - Requête Hunyuan3D v2 Multi-View to 3D', [
@@ -138,17 +142,22 @@ class FalService
             // Utiliser l'API de queue de fal.ai
             // Modèle Hunyuan3D v2 standard pour génération mono-image haute qualité
             // Format: https://queue.fal.run/fal-ai/hunyuan3d/v2
+            // Documentation: https://fal.ai/models/fal-ai/hunyuan3d/v2/api
             $url = $this->baseUrl . '/fal-ai/hunyuan3d/v2';
             
             // Le payload pour l'API Queue doit être directement dans le body
+            // IMPORTANT: Le paramètre est "input_image_url" (pas "image_url")
             $payload = [
-                'image_url' => $imageUrl,
-                'textured_mesh' => true, // Toujours activer textured mesh pour obtenir un modèle avec textures
+                'input_image_url' => $imageUrl,
+                'textured_mesh' => true, // Activer textured mesh pour obtenir un modèle avec textures (coût x3)
+                'num_inference_steps' => 50, // Valeur par défaut recommandée
+                'guidance_scale' => 7.5, // Valeur par défaut recommandée
+                'octree_resolution' => 256, // Valeur par défaut recommandée
             ];
 
             Log::info('Fal Service - Requête Hunyuan3D v2 Image to 3D', [
                 'url' => $url,
-                'image_url' => $imageUrl,
+                'input_image_url' => $imageUrl,
                 'textured_mesh' => true,
             ]);
 
