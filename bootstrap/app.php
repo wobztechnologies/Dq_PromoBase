@@ -27,5 +27,36 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        // Pour les requêtes API, retourner les détails de l'erreur en JSON
+        $exceptions->render(function (\Throwable $e, \Illuminate\Http\Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                $status = 500;
+                if ($e instanceof \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface) {
+                    $status = $e->getStatusCode();
+                }
+                
+                $response = [
+                    'message' => $e->getMessage(),
+                    'exception' => get_class($e),
+                ];
+                
+                // En mode debug, ajouter plus de détails
+                if (config('app.debug')) {
+                    $response['file'] = $e->getFile();
+                    $response['line'] = $e->getLine();
+                    $response['trace'] = collect($e->getTrace())->take(5)->toArray();
+                }
+                
+                // Logger l'erreur
+                \Illuminate\Support\Facades\Log::error('API Error: ' . $e->getMessage(), [
+                    'exception' => get_class($e),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                    'url' => $request->fullUrl(),
+                    'method' => $request->method(),
+                ]);
+                
+                return response()->json($response, $status);
+            }
+        });
     })->create();
