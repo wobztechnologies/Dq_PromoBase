@@ -78,7 +78,7 @@ class ProductController extends Controller
      *                     @OA\Property(property="neutral_background", type="boolean", description="True si l'image a un fond neutre (blanc, gris, etc.)"),
      *                     @OA\Property(property="product_only", type="boolean", description="True si l'image montre uniquement le produit (pas de mise en situation)")
      *                 )),
-     *                 @OA\Property(property="model_3d", type="object", nullable=true, description="Modèle 3D associé",
+     *                 @OA\Property(property="model_3d", type="object", nullable=true, description="Modèle 3D associé. Pour les produits 'color_root', seul un modèle 3D général (sans variante associée) est retourné. Pour les variantes, le modèle spécifique à la variante est retourné s'il existe.",
      *                     @OA\Property(property="uuid", type="string", description="UUID du modèle 3D"),
      *                     @OA\Property(property="status", type="string", enum={"Requested", "Error", "InReview", "Published"}, description="Statut: Requested=en cours de génération, Error=erreur, InReview=en attente de validation, Published=disponible"),
      *                     @OA\Property(property="url", type="string", nullable=true, description="URL présignée du fichier GLB (valide 24h, null si status!=Published)")
@@ -267,7 +267,7 @@ class ProductController extends Controller
      *                     @OA\Property(property="neutral_background", type="boolean", description="True si l'image a un fond neutre (blanc, gris, etc.)"),
      *                     @OA\Property(property="product_only", type="boolean", description="True si l'image montre uniquement le produit (pas de mise en situation)")
      *                 )),
-     *                 @OA\Property(property="model_3d", type="object", nullable=true, description="Modèle 3D associé",
+     *                 @OA\Property(property="model_3d", type="object", nullable=true, description="Modèle 3D associé. Pour les produits 'color_root', seul un modèle 3D général (sans variante associée) est retourné. Pour les variantes, le modèle spécifique à la variante est retourné s'il existe.",
      *                     @OA\Property(property="uuid", type="string", description="UUID du modèle 3D"),
      *                     @OA\Property(property="status", type="string", enum={"Requested", "Error", "InReview", "Published"}, description="Statut: Requested=en cours de génération, Error=erreur, InReview=en attente de validation, Published=disponible"),
      *                     @OA\Property(property="url", type="string", nullable=true, description="URL présignée du fichier GLB (valide 24h, null si status!=Published)")
@@ -419,8 +419,28 @@ class ProductController extends Controller
         })->toArray();
 
         // Modèle 3D par défaut
+        // Pour les produits color_root, on ne retourne que les modèles 3D "généraux" (sans variantes associées)
+        // Pour les produits simples (general), on retourne le modèle par défaut
         $model3d = null;
-        if ($product->defaultModel3D) {
+        
+        if ($productType === 'color_root') {
+            // Pour color_root: chercher un modèle 3D général (sans variantes associées)
+            $generalModel = $product->models3d()
+                ->whereDoesntHave('colorVariants')
+                ->where('status', \App\Models\ProductModel3D::STATUS_PUBLISHED)
+                ->first();
+            
+            if ($generalModel) {
+                $model3d = [
+                    'uuid' => $generalModel->id,
+                    'status' => $generalModel->status,
+                    'url' => $generalModel->s3_url 
+                        ? $this->getPresignedUrl($generalModel->s3_url) 
+                        : null,
+                ];
+            }
+        } elseif ($product->defaultModel3D) {
+            // Pour les produits simples: utiliser le modèle par défaut
             $model3d = [
                 'uuid' => $product->defaultModel3D->id,
                 'status' => $product->defaultModel3D->status,

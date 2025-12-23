@@ -207,6 +207,15 @@
                             "type": "boolean",
                             "default": false
                         }
+                    },
+                    {
+                        "name": "root_only",
+                        "in": "query",
+                        "description": "Si true, retourne uniquement les catégories racines (niveau 1, sans parent)",
+                        "schema": {
+                            "type": "boolean",
+                            "default": false
+                        }
                     }
                 ],
                 "responses": {
@@ -280,9 +289,27 @@
                                                         "type": "string",
                                                         "nullable": true
                                                     },
+                                                    "parent_name": {
+                                                        "description": "Nom de la catégorie parente",
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "products_count": {
+                                                        "description": "Nombre total de produits dans cette catégorie ET ses sous-catégories",
+                                                        "type": "integer"
+                                                    },
                                                     "children": {
+                                                        "description": "Liste des catégories enfants (uuid et name)",
                                                         "type": "array",
                                                         "items": {
+                                                            "properties": {
+                                                                "uuid": {
+                                                                    "type": "string"
+                                                                },
+                                                                "name": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
                                                             "type": "object"
                                                         }
                                                     }
@@ -426,7 +453,7 @@
                     "Fabricants"
                 ],
                 "summary": "Liste des fabricants",
-                "description": "Retourne la liste des fabricants avec leurs UUID",
+                "description": "Retourne la liste des fabricants qui ont au moins un produit",
                 "operationId": "getManufacturers",
                 "responses": {
                     "200": {
@@ -448,6 +475,10 @@
                                                     "logo_url": {
                                                         "type": "string",
                                                         "nullable": true
+                                                    },
+                                                    "products_count": {
+                                                        "description": "Nombre de produits de ce fabricant",
+                                                        "type": "integer"
                                                     }
                                                 },
                                                 "type": "object"
@@ -556,7 +587,7 @@
                     "Produits"
                 ],
                 "summary": "Liste des produits",
-                "description": "Retourne la liste des produits. Les variantes de couleur sont traitées comme des produits à part entière.",
+                "description": "Retourne la liste des produits avec 3 types: 'general' (produit simple sans variante), 'color_root' (produit parent avec variantes de couleur), 'variant' (variante de couleur). Les produits color_root ET leurs variantes sont retournés séparément.",
                 "operationId": "getProducts",
                 "parameters": [
                     {
@@ -608,7 +639,7 @@
                     {
                         "name": "category",
                         "in": "query",
-                        "description": "Filtrer par UUID de catégorie",
+                        "description": "Filtrer par UUID de catégorie (inclut automatiquement les produits des sous-catégories)",
                         "schema": {
                             "type": "string",
                             "format": "uuid"
@@ -626,6 +657,23 @@
                                             "type": "array",
                                             "items": {
                                                 "properties": {
+                                                    "type": {
+                                                        "description": "Type de ligne: 'general' pour un produit (simple ou color_root), 'variant' pour une variante de couleur",
+                                                        "type": "string",
+                                                        "enum": [
+                                                            "general",
+                                                            "variant"
+                                                        ]
+                                                    },
+                                                    "product_type": {
+                                                        "description": "Type de produit détaillé: 'general' = produit simple sans variante, 'color_root' = produit parent avec variantes de couleur, 'variant' = variante de couleur",
+                                                        "type": "string",
+                                                        "enum": [
+                                                            "general",
+                                                            "color_root",
+                                                            "variant"
+                                                        ]
+                                                    },
                                                     "sku": {
                                                         "type": "string"
                                                     },
@@ -642,10 +690,22 @@
                                                         "type": "string"
                                                     },
                                                     "principal_color": {
+                                                        "description": "Nom de la couleur principale",
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "principal_color_hex": {
+                                                        "description": "Code hexadécimal de la couleur principale (ex: #FF0000)",
                                                         "type": "string",
                                                         "nullable": true
                                                     },
                                                     "manufacturer_color": {
+                                                        "description": "Nom de la couleur fabricant",
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "manufacturer_color_hex": {
+                                                        "description": "Code hexadécimal de la couleur fabricant",
                                                         "type": "string",
                                                         "nullable": true
                                                     },
@@ -654,15 +714,29 @@
                                                         "items": {
                                                             "properties": {
                                                                 "url": {
+                                                                    "description": "URL présignée de l'image (valide 24h)",
                                                                     "type": "string"
                                                                 },
                                                                 "position": {
-                                                                    "type": "string"
+                                                                    "description": "Position/vue de l'image",
+                                                                    "type": "string",
+                                                                    "enum": [
+                                                                        "Front",
+                                                                        "Back",
+                                                                        "Left",
+                                                                        "Right",
+                                                                        "Top",
+                                                                        "Bottom",
+                                                                        "Part Zoom"
+                                                                    ],
+                                                                    "nullable": true
                                                                 },
                                                                 "neutral_background": {
+                                                                    "description": "True si l'image a un fond neutre (blanc, gris, etc.)",
                                                                     "type": "boolean"
                                                                 },
                                                                 "product_only": {
+                                                                    "description": "True si l'image montre uniquement le produit (pas de mise en situation)",
                                                                     "type": "boolean"
                                                                 }
                                                             },
@@ -670,19 +744,43 @@
                                                         }
                                                     },
                                                     "model_3d": {
+                                                        "description": "Modèle 3D associé",
                                                         "properties": {
                                                             "uuid": {
+                                                                "description": "UUID du modèle 3D",
                                                                 "type": "string"
                                                             },
                                                             "status": {
-                                                                "type": "string"
+                                                                "description": "Statut: Requested=en cours de génération, Error=erreur, InReview=en attente de validation, Published=disponible",
+                                                                "type": "string",
+                                                                "enum": [
+                                                                    "Requested",
+                                                                    "Error",
+                                                                    "InReview",
+                                                                    "Published"
+                                                                ]
                                                             },
                                                             "url": {
+                                                                "description": "URL présignée du fichier GLB (valide 24h, null si status!=Published)",
                                                                 "type": "string",
                                                                 "nullable": true
                                                             }
                                                         },
                                                         "type": "object",
+                                                        "nullable": true
+                                                    },
+                                                    "variant_uuid": {
+                                                        "description": "UUID de la variante (null si type=general)",
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "product_uuid": {
+                                                        "description": "UUID du produit parent",
+                                                        "type": "string"
+                                                    },
+                                                    "variants_count": {
+                                                        "description": "Nombre de variantes (uniquement pour product_type=color_root)",
+                                                        "type": "integer",
                                                         "nullable": true
                                                     }
                                                 },
@@ -729,7 +827,7 @@
                     "Produits"
                 ],
                 "summary": "Rechercher des produits",
-                "description": "Recherche des produits par SKU ou par nom. Les variantes de couleur sont traitées comme des produits à part entière.",
+                "description": "Recherche des produits par SKU ou par nom. Retourne 3 types: 'general' (produit simple), 'color_root' (produit avec variantes), 'variant' (variante de couleur). La recherche s'effectue sur le SKU et le nom du produit/variante.",
                 "operationId": "searchProducts",
                 "parameters": [
                     {
@@ -773,6 +871,23 @@
                                             "type": "array",
                                             "items": {
                                                 "properties": {
+                                                    "type": {
+                                                        "description": "Type de ligne: 'general' pour un produit (simple ou color_root), 'variant' pour une variante de couleur",
+                                                        "type": "string",
+                                                        "enum": [
+                                                            "general",
+                                                            "variant"
+                                                        ]
+                                                    },
+                                                    "product_type": {
+                                                        "description": "Type de produit détaillé: 'general' = produit simple sans variante, 'color_root' = produit parent avec variantes de couleur, 'variant' = variante de couleur",
+                                                        "type": "string",
+                                                        "enum": [
+                                                            "general",
+                                                            "color_root",
+                                                            "variant"
+                                                        ]
+                                                    },
                                                     "sku": {
                                                         "type": "string"
                                                     },
@@ -789,10 +904,22 @@
                                                         "type": "string"
                                                     },
                                                     "principal_color": {
+                                                        "description": "Nom de la couleur principale",
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "principal_color_hex": {
+                                                        "description": "Code hexadécimal de la couleur principale (ex: #FF0000)",
                                                         "type": "string",
                                                         "nullable": true
                                                     },
                                                     "manufacturer_color": {
+                                                        "description": "Nom de la couleur fabricant",
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "manufacturer_color_hex": {
+                                                        "description": "Code hexadécimal de la couleur fabricant",
                                                         "type": "string",
                                                         "nullable": true
                                                     },
@@ -801,15 +928,29 @@
                                                         "items": {
                                                             "properties": {
                                                                 "url": {
+                                                                    "description": "URL présignée de l'image (valide 24h)",
                                                                     "type": "string"
                                                                 },
                                                                 "position": {
-                                                                    "type": "string"
+                                                                    "description": "Position/vue de l'image",
+                                                                    "type": "string",
+                                                                    "enum": [
+                                                                        "Front",
+                                                                        "Back",
+                                                                        "Left",
+                                                                        "Right",
+                                                                        "Top",
+                                                                        "Bottom",
+                                                                        "Part Zoom"
+                                                                    ],
+                                                                    "nullable": true
                                                                 },
                                                                 "neutral_background": {
+                                                                    "description": "True si l'image a un fond neutre (blanc, gris, etc.)",
                                                                     "type": "boolean"
                                                                 },
                                                                 "product_only": {
+                                                                    "description": "True si l'image montre uniquement le produit (pas de mise en situation)",
                                                                     "type": "boolean"
                                                                 }
                                                             },
@@ -817,19 +958,43 @@
                                                         }
                                                     },
                                                     "model_3d": {
+                                                        "description": "Modèle 3D associé",
                                                         "properties": {
                                                             "uuid": {
+                                                                "description": "UUID du modèle 3D",
                                                                 "type": "string"
                                                             },
                                                             "status": {
-                                                                "type": "string"
+                                                                "description": "Statut: Requested=en cours de génération, Error=erreur, InReview=en attente de validation, Published=disponible",
+                                                                "type": "string",
+                                                                "enum": [
+                                                                    "Requested",
+                                                                    "Error",
+                                                                    "InReview",
+                                                                    "Published"
+                                                                ]
                                                             },
                                                             "url": {
+                                                                "description": "URL présignée du fichier GLB (valide 24h, null si status!=Published)",
                                                                 "type": "string",
                                                                 "nullable": true
                                                             }
                                                         },
                                                         "type": "object",
+                                                        "nullable": true
+                                                    },
+                                                    "variant_uuid": {
+                                                        "description": "UUID de la variante (null si type=general)",
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "product_uuid": {
+                                                        "description": "UUID du produit parent",
+                                                        "type": "string"
+                                                    },
+                                                    "variants_count": {
+                                                        "description": "Nombre de variantes (uniquement pour product_type=color_root)",
+                                                        "type": "integer",
                                                         "nullable": true
                                                     }
                                                 },
@@ -975,7 +1140,7 @@
                         "description": "Non authentifié"
                     },
                     "409": {
-                        "description": "Conflit - Modèle 3D déjà existant",
+                        "description": "Conflit - Modèle 3D déjà existant (en mode général: vérifie les modèles sans variante, en mode variant: vérifie les modèles de cette variante)",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -996,6 +1161,26 @@
                                                 "status": {
                                                     "type": "string",
                                                     "example": "Requested"
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        {
+                                            "properties": {
+                                                "error": {
+                                                    "type": "string",
+                                                    "example": "In review"
+                                                },
+                                                "message": {
+                                                    "type": "string",
+                                                    "example": "This product has a 3D model currently in review. Please wait for the review to complete."
+                                                },
+                                                "model_3d_uuid": {
+                                                    "type": "string"
+                                                },
+                                                "status": {
+                                                    "type": "string",
+                                                    "example": "InReview"
                                                 }
                                             },
                                             "type": "object"
@@ -1150,7 +1335,7 @@
                         "description": "Produit, variante ou image non trouvé"
                     },
                     "409": {
-                        "description": "Conflit - Modèle 3D déjà existant ou en cours de génération",
+                        "description": "Conflit - Modèle 3D déjà existant ou en cours de génération (en mode général: vérifie les modèles sans variante, en mode variant: vérifie les modèles de cette variante)",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1171,6 +1356,26 @@
                                                 "status": {
                                                     "type": "string",
                                                     "example": "Requested"
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        {
+                                            "properties": {
+                                                "error": {
+                                                    "type": "string",
+                                                    "example": "In review"
+                                                },
+                                                "message": {
+                                                    "type": "string",
+                                                    "example": "This product has a 3D model currently in review. Please wait for the review to complete."
+                                                },
+                                                "model_3d_uuid": {
+                                                    "type": "string"
+                                                },
+                                                "status": {
+                                                    "type": "string",
+                                                    "example": "InReview"
                                                 }
                                             },
                                             "type": "object"
