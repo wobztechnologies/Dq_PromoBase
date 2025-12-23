@@ -37,6 +37,20 @@ chown -R www-data:www-data /var/www/html/storage/framework/sessions 2>/dev/null 
 chown -R www-data:www-data /var/www/html/storage/framework/cache 2>/dev/null || true
 chown -R www-data:www-data /var/www/html/storage/framework/views 2>/dev/null || true
 
+# Clear Laravel caches on container start to ensure fresh code
+echo "Clearing Laravel caches..."
+cd /var/www/html
+php artisan config:clear 2>/dev/null || true
+php artisan cache:clear 2>/dev/null || true
+php artisan view:clear 2>/dev/null || true
+php artisan route:clear 2>/dev/null || true
+php artisan event:clear 2>/dev/null || true
+
+# Reset OPcache via PHP-FPM (if running)
+php -r "if (function_exists('opcache_reset')) { opcache_reset(); echo 'OPcache reset successfully'; } else { echo 'OPcache not available'; }" 2>/dev/null || true
+
+echo "Cache clearing complete."
+
 # Validate Nginx configuration
 nginx -t || {
     echo "ERROR: Nginx configuration is invalid"
