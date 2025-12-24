@@ -11,11 +11,18 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // Supprimer la contrainte CHECK existante si elle existe
-        \DB::statement("ALTER TABLE csv_imports DROP CONSTRAINT IF EXISTS csv_imports_status_check");
+        // SQLite ne supporte pas ALTER TABLE avec DROP/ADD CONSTRAINT
+        // Cette migration est spécifique à PostgreSQL
+        $driver = Schema::getConnection()->getDriverName();
         
-        // Recréer la contrainte CHECK avec les bonnes valeurs
-        \DB::statement("ALTER TABLE csv_imports ADD CONSTRAINT csv_imports_status_check CHECK (status IN ('pending_validation', 'validation_failed', 'pending_matching', 'matching_completed', 'processing', 'completed', 'failed'))");
+        if ($driver === 'pgsql') {
+            // Supprimer la contrainte CHECK existante si elle existe
+            \DB::statement("ALTER TABLE csv_imports DROP CONSTRAINT IF EXISTS csv_imports_status_check");
+            
+            // Recréer la contrainte CHECK avec les bonnes valeurs
+            \DB::statement("ALTER TABLE csv_imports ADD CONSTRAINT csv_imports_status_check CHECK (status IN ('pending_validation', 'validation_failed', 'pending_matching', 'matching_completed', 'processing', 'completed', 'failed'))");
+        }
+        // Pour SQLite, la validation est gérée côté application
     }
 
     /**
@@ -23,7 +30,11 @@ return new class extends Migration
      */
     public function down(): void
     {
-        // Supprimer la contrainte CHECK
-        \DB::statement("ALTER TABLE csv_imports DROP CONSTRAINT IF EXISTS csv_imports_status_check");
+        $driver = Schema::getConnection()->getDriverName();
+        
+        if ($driver === 'pgsql') {
+            // Supprimer la contrainte CHECK
+            \DB::statement("ALTER TABLE csv_imports DROP CONSTRAINT IF EXISTS csv_imports_status_check");
+        }
     }
 };

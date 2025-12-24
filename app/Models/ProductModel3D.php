@@ -23,6 +23,7 @@ class ProductModel3D extends Model
         'meshy_task_id',
         'is_default',
         'status',
+        'origin',
     ];
 
     protected $casts = [
@@ -36,6 +37,15 @@ class ProductModel3D extends Model
     public const STATUS_ERROR = 'Error';
     public const STATUS_IN_REVIEW = 'InReview';
     public const STATUS_PUBLISHED = 'Published';
+    
+    /**
+     * Origines possibles pour un modèle 3D
+     */
+    public const ORIGIN_UPLOADED = 'uploaded';
+    public const ORIGIN_AI_HUNYUAN_MULTIVIEW = 'Ai - Hunyuan3D v2 Multi-View';
+    public const ORIGIN_AI_HUNYUAN_MONO = 'Ai - Hunyuan3D v2';
+    public const ORIGIN_AI_MESHY_MAX = 'Ai - Meshy Max';
+    public const ORIGIN_AI_LEGACY = 'Ai - Legacy';
     
     /**
      * Statuts qui empêchent une nouvelle génération

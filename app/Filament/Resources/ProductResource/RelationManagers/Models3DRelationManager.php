@@ -78,6 +78,12 @@ class Models3DRelationManager extends RelationManager
                                 ->update(['is_default' => false]);
                         }
                     }),
+                Forms\Components\TextInput::make('origin')
+                    ->label('Origine')
+                    ->disabled()
+                    ->default(\App\Models\ProductModel3D::ORIGIN_UPLOADED)
+                    ->dehydrated(true)
+                    ->helperText('Origine du modèle 3D (automatique)'),
                 Forms\Components\Select::make('colorVariants')
                     ->label('Variantes de couleur associées')
                     ->relationship('colorVariants', 'sku',
@@ -130,6 +136,15 @@ class Models3DRelationManager extends RelationManager
                         \App\Models\ProductModel3D::STATUS_IN_REVIEW => 'In Review',
                         \App\Models\ProductModel3D::STATUS_PUBLISHED => 'Published',
                         default => $state,
+                    })
+                    ->sortable(),
+                Tables\Columns\TextColumn::make('origin')
+                    ->label('Origine')
+                    ->badge()
+                    ->color(fn (?string $state): string => match (true) {
+                        $state === \App\Models\ProductModel3D::ORIGIN_UPLOADED => 'gray',
+                        str_starts_with($state ?? '', 'Ai - ') => 'success',
+                        default => 'gray',
                     })
                     ->sortable(),
                 Tables\Columns\TextColumn::make('s3_url')
@@ -537,12 +552,21 @@ class Models3DRelationManager extends RelationManager
                             $s3Path = $product->generateAssetPath('glb', $variantSku);
                             $outputPath = 's3://' . $bucket . '/' . $s3Path;
                             
+                            // Déterminer l'origine selon le modèle AI choisi
+                            $origin = match($aiModel) {
+                                'fal' => \App\Models\ProductModel3D::ORIGIN_AI_HUNYUAN_MULTIVIEW,
+                                'fal-mono' => \App\Models\ProductModel3D::ORIGIN_AI_HUNYUAN_MONO,
+                                'meshy-5' => \App\Models\ProductModel3D::ORIGIN_AI_MESHY_MAX,
+                                default => \App\Models\ProductModel3D::ORIGIN_AI_LEGACY,
+                            };
+                            
                             // Créer l'enregistrement avec status "Requested" AVANT l'appel API
                             $model3D = \App\Models\ProductModel3D::create([
                                 'product_id' => $product->id,
                                 's3_url' => null, // Pas encore de fichier
                                 'status' => \App\Models\ProductModel3D::STATUS_REQUESTED,
                                 'is_default' => false,
+                                'origin' => $origin,
                             ]);
                             
                             // Si mode variant, associer la variante au modèle 3D

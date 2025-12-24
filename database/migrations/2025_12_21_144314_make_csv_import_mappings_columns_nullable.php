@@ -12,15 +12,21 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // PostgreSQL requiert des ALTER COLUMN spécifiques
-        DB::statement('ALTER TABLE csv_import_mappings ALTER COLUMN csv_import_id DROP NOT NULL');
-        DB::statement('ALTER TABLE csv_import_mappings ALTER COLUMN entity_type DROP NOT NULL');
-        DB::statement('ALTER TABLE csv_import_mappings ALTER COLUMN is_created DROP NOT NULL');
-        DB::statement('ALTER TABLE csv_import_mappings ALTER COLUMN target_id DROP NOT NULL');
-        DB::statement('ALTER TABLE csv_import_mappings ALTER COLUMN source_value DROP NOT NULL');
+        // SQLite ne supporte pas ALTER COLUMN, uniquement PostgreSQL
+        $driver = Schema::getConnection()->getDriverName();
         
-        // Ajouter une valeur par défaut pour is_created
-        DB::statement('ALTER TABLE csv_import_mappings ALTER COLUMN is_created SET DEFAULT false');
+        if ($driver === 'pgsql') {
+            // PostgreSQL requiert des ALTER COLUMN spécifiques
+            DB::statement('ALTER TABLE csv_import_mappings ALTER COLUMN csv_import_id DROP NOT NULL');
+            DB::statement('ALTER TABLE csv_import_mappings ALTER COLUMN entity_type DROP NOT NULL');
+            DB::statement('ALTER TABLE csv_import_mappings ALTER COLUMN is_created DROP NOT NULL');
+            DB::statement('ALTER TABLE csv_import_mappings ALTER COLUMN target_id DROP NOT NULL');
+            DB::statement('ALTER TABLE csv_import_mappings ALTER COLUMN source_value DROP NOT NULL');
+            
+            // Ajouter une valeur par défaut pour is_created
+            DB::statement('ALTER TABLE csv_import_mappings ALTER COLUMN is_created SET DEFAULT false');
+        }
+        // Pour SQLite, les colonnes sont déjà nullable par défaut dans les migrations précédentes
     }
 
     /**
