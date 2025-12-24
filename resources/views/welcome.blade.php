@@ -4,7 +4,7 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>{{ config('app.name', 'PromoBase') }}</title>
-        <link rel="icon" type="image/png" href="{{ asset('img/pormobase.png') }}">
+        <link rel="icon" type="image/png" href="{{ asset('img/favicon.png') }}">
         <style>
             * {
                 margin: 0;
