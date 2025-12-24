@@ -35,9 +35,9 @@ echo "Warmup PHP: HTTP $WARMUP_PHP"
 WARMUP_LARAVEL=$(curl -s -o /dev/null -w "%{http_code}" --max-time 180 http://127.0.0.1:8080/up 2>/dev/null)
 echo "Warmup Laravel: HTTP $WARMUP_LARAVEL"
 
-# Additional warmup for API routes
-curl -s -o /dev/null --max-time 60 http://127.0.0.1:8080/api/ext/categories 2>/dev/null
-echo "Warmup API complete"
+# Additional warmup - call admin login page to warm up Filament
+curl -s -o /dev/null --max-time 60 http://127.0.0.1:8080/admin/login 2>/dev/null
+echo "Warmup admin complete"
 
 echo "Laravel initialization complete"
 
