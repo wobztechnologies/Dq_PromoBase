@@ -81,10 +81,17 @@ class AnalyzeProductImage implements ShouldQueue
             Log::info("Image {$this->imageId} analysée avec succès par le ML");
 
             // Si une couleur dominante est détectée, créer automatiquement une variante
+            // SEULEMENT si l'image n'est pas déjà associée à une variante de couleur (ex: import CSV)
             if ($analysis['dominant_color'] && $this->productId) {
                 try {
-                    // Vérifier si ColorMappingService existe
-                    if (class_exists(\App\Services\ColorMappingService::class)) {
+                    // Recharger l'image pour avoir les relations à jour
+                    $image->refresh();
+                    
+                    // Ne pas créer de variante si l'image est déjà associée à une ou plusieurs variantes
+                    if ($image->colorVariants()->exists()) {
+                        Log::info("Image {$this->imageId} déjà associée à une variante de couleur, pas de création automatique");
+                    } elseif (class_exists(\App\Services\ColorMappingService::class)) {
+                        // Vérifier si ColorMappingService existe
                         $colorMappingService = app(\App\Services\ColorMappingService::class);
                         $primaryColor = $colorMappingService->findClosestPrimaryColor($analysis['dominant_color']);
 
