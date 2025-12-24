@@ -51,14 +51,14 @@ class ProductImportHandler implements ImportHandlerInterface
                     return false;
                 }
                 
-                // Trouver les entités liées
-                $category = Category::where('name', $categoryName)->first();
+                // Trouver les entités liées (comparaison insensible à la casse)
+                $category = Category::whereRaw('LOWER(name) = ?', [mb_strtolower($categoryName)])->first();
                 if (!$category) {
                     $import->addLog('error', "Catégorie '{$categoryName}' non trouvée", $row, $rowNumber, $sku);
                     return false;
                 }
                 
-                $manufacturer = Manufacturer::where('name', $manufacturerName)->first();
+                $manufacturer = Manufacturer::whereRaw('LOWER(name) = ?', [mb_strtolower($manufacturerName)])->first();
                 if (!$manufacturer) {
                     $import->addLog('error', "Fabricant '{$manufacturerName}' non trouvé", $row, $rowNumber, $sku);
                     return false;
@@ -105,10 +105,10 @@ class ProductImportHandler implements ImportHandlerInterface
                 }
                 // Si les deux colonnes sont fournies : couleur principale + couleur fabricant
                 elseif ($primaryColorName && $colorName) {
-                    // Chercher la couleur principale (d'abord par mapping, sinon par nom)
+                    // Chercher la couleur principale (d'abord par mapping, sinon par nom - insensible à la casse)
                     $primaryColor = $primaryColorMappedId 
                         ? PrimaryColor::find($primaryColorMappedId)
-                        : PrimaryColor::where('name', $primaryColorName)
+                        : PrimaryColor::whereRaw('LOWER(name) = ?', [mb_strtolower($primaryColorName)])
                             ->whereNull('parent_id')
                             ->whereNull('manufacturer_id')
                             ->first();
@@ -118,8 +118,8 @@ class ProductImportHandler implements ImportHandlerInterface
                         return false;
                     }
                     
-                    // Chercher la couleur fabricant qui correspond à la couleur principale et au fabricant
-                    $color = PrimaryColor::where('name', $colorName)
+                    // Chercher la couleur fabricant qui correspond à la couleur principale et au fabricant (insensible à la casse)
+                    $color = PrimaryColor::whereRaw('LOWER(name) = ?', [mb_strtolower($colorName)])
                         ->where('parent_id', $primaryColor->id)
                         ->where('manufacturer_id', $manufacturer->id)
                         ->first();
@@ -133,7 +133,7 @@ class ProductImportHandler implements ImportHandlerInterface
                 elseif ($primaryColorName && !$colorName) {
                     $color = $primaryColorMappedId 
                         ? PrimaryColor::find($primaryColorMappedId)
-                        : PrimaryColor::where('name', $primaryColorName)
+                        : PrimaryColor::whereRaw('LOWER(name) = ?', [mb_strtolower($primaryColorName)])
                             ->whereNull('parent_id')
                             ->whereNull('manufacturer_id')
                             ->first();
@@ -151,14 +151,14 @@ class ProductImportHandler implements ImportHandlerInterface
                 }
                 // Si seulement color_name est fourni (compatibilité avec anciens imports)
                 elseif ($colorName) {
-                    // Chercher d'abord une couleur fabricant avec ce nom pour CE fabricant
-                    $color = PrimaryColor::where('name', $colorName)
+                    // Chercher d'abord une couleur fabricant avec ce nom pour CE fabricant (insensible à la casse)
+                    $color = PrimaryColor::whereRaw('LOWER(name) = ?', [mb_strtolower($colorName)])
                         ->where('manufacturer_id', $manufacturer->id)
                         ->first();
                     
-                    // Si pas trouvé comme couleur fabricant, chercher comme couleur principale
+                    // Si pas trouvé comme couleur fabricant, chercher comme couleur principale (insensible à la casse)
                     if (!$color) {
-                        $color = PrimaryColor::where('name', $colorName)
+                        $color = PrimaryColor::whereRaw('LOWER(name) = ?', [mb_strtolower($colorName)])
                             ->whereNull('parent_id')
                             ->whereNull('manufacturer_id')
                             ->first();
@@ -197,7 +197,12 @@ class ProductImportHandler implements ImportHandlerInterface
                 // Gérer les variantes de taille
                 $sizeVariant = null;
                 if ($sizeName) {
-                    $size = Size::where('name', $sizeName)->first();
+                    // Vérifier si un mapping a été fait dans le wizard (size_name_mapped_id)
+                    $sizeMappedId = $row['size_name_mapped_id'] ?? null;
+                    $size = $sizeMappedId 
+                        ? Size::find($sizeMappedId)
+                        : Size::whereRaw('LOWER(name) = ?', [mb_strtolower($sizeName)])->first();
+                    
                     if (!$size) {
                         $import->addLog('error', "Taille '{$sizeName}' non trouvée", $row, $rowNumber, $sku);
                         return false;

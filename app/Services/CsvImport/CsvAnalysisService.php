@@ -441,6 +441,7 @@ class CsvAnalysisService
 
     /**
      * Vérifier si une couleur fabricant existe (format: "manufacturer_name|color_name")
+     * Comparaison insensible à la casse
      */
     protected function manufacturerColorExists(string $pair): bool
     {
@@ -452,13 +453,14 @@ class CsvAnalysisService
         
         return DB::table('primary_colors')
             ->join('manufacturers', 'primary_colors.manufacturer_id', '=', 'manufacturers.id')
-            ->where('manufacturers.name', $manufacturerName)
-            ->where('primary_colors.name', $colorName)
+            ->whereRaw('LOWER(manufacturers.name) = ?', [mb_strtolower($manufacturerName)])
+            ->whereRaw('LOWER(primary_colors.name) = ?', [mb_strtolower($colorName)])
             ->exists();
     }
     
     /**
      * Trouver les valeurs qui n'existent pas en DB
+     * Comparaison insensible à la casse
      */
     protected function findMissingInDB(
         string $table,
@@ -477,7 +479,10 @@ class CsvAnalysisService
             return [];
         }
         
-        $query = DB::table($table)->whereIn($column, $values);
+        // Préparer les valeurs en minuscules pour la comparaison
+        $lowerValues = array_map('mb_strtolower', $values);
+        
+        $query = DB::table($table);
         
         foreach ($additionalConditions as $col => $condition) {
             if (is_array($condition) && isset($condition[0]) && $condition[0] === '!=') {
@@ -489,9 +494,22 @@ class CsvAnalysisService
             }
         }
         
-        $existing = $query->pluck($column)->toArray();
+        // Récupérer toutes les valeurs existantes avec leur casse originale
+        $existingRecords = $query->pluck($column)->toArray();
         
-        return array_values(array_diff($values, $existing));
+        // Créer un mapping lowercase -> original pour les existants
+        $existingLower = array_map('mb_strtolower', $existingRecords);
+        
+        // Trouver les valeurs qui n'existent pas (comparaison insensible à la casse)
+        $missing = [];
+        foreach ($values as $value) {
+            $lowerValue = mb_strtolower($value);
+            if (!in_array($lowerValue, $existingLower)) {
+                $missing[] = $value;
+            }
+        }
+        
+        return array_values($missing);
     }
 
     /**

@@ -59,16 +59,17 @@ class MatchingService
 
     /**
      * Trouver une entité dans la base de données
+     * Comparaison insensible à la casse
      */
     protected function findEntity(string $mappingType, string $sourceValue): ?object
     {
         return match($mappingType) {
-            'category' => Category::where('name', $sourceValue)->first(),
-            'distributor' => Distributor::where('name', $sourceValue)->first(),
-            'manufacturer' => Manufacturer::where('name', $sourceValue)->first(),
+            'category' => Category::whereRaw('LOWER(name) = ?', [mb_strtolower($sourceValue)])->first(),
+            'distributor' => Distributor::whereRaw('LOWER(name) = ?', [mb_strtolower($sourceValue)])->first(),
+            'manufacturer' => Manufacturer::whereRaw('LOWER(name) = ?', [mb_strtolower($sourceValue)])->first(),
             'manufacturer_color' => $this->findManufacturerColor($sourceValue),
-            'size' => Size::where('name', $sourceValue)->first(),
-            'primary_color' => PrimaryColor::where('name', $sourceValue)
+            'size' => Size::whereRaw('LOWER(name) = ?', [mb_strtolower($sourceValue)])->first(),
+            'primary_color' => PrimaryColor::whereRaw('LOWER(name) = ?', [mb_strtolower($sourceValue)])
                 ->whereNull('manufacturer_id')
                 ->whereNull('parent_id')
                 ->first(),
@@ -78,6 +79,7 @@ class MatchingService
     
     /**
      * Trouver une couleur fabricant par le format "manufacturer_name|color_name"
+     * Comparaison insensible à la casse
      */
     protected function findManufacturerColor(string $sourceValue): ?PrimaryColor
     {
@@ -85,18 +87,18 @@ class MatchingService
         if (str_contains($sourceValue, '|')) {
             [$manufacturerName, $colorName] = explode('|', $sourceValue, 2);
             
-            $manufacturer = Manufacturer::where('name', $manufacturerName)->first();
+            $manufacturer = Manufacturer::whereRaw('LOWER(name) = ?', [mb_strtolower($manufacturerName)])->first();
             if (!$manufacturer) {
                 return null;
             }
             
-            return PrimaryColor::where('name', $colorName)
+            return PrimaryColor::whereRaw('LOWER(name) = ?', [mb_strtolower($colorName)])
                 ->where('manufacturer_id', $manufacturer->id)
                 ->first();
         }
         
         // Fallback: chercher par nom seul (compatibilité)
-        return PrimaryColor::where('name', $sourceValue)
+        return PrimaryColor::whereRaw('LOWER(name) = ?', [mb_strtolower($sourceValue)])
             ->whereNotNull('manufacturer_id')
             ->first();
     }
