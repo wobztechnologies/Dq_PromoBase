@@ -24,9 +24,11 @@ Ce document explique comment importer des produits via CSV et comment les varian
 
 ### Colonnes optionnelles
 
-- `color_name` : Nom de la couleur fabricant
 - `primary_color_name` : Nom de la couleur principale
+- `color_name` : Nom de la couleur fabricant
+- `variant_sku` : SKU personnalisé pour la variante couleur (si non fourni, auto-généré)
 - `size_name` : Nom de la taille (doit exister dans le système)
+- `size_sku` : SKU personnalisé pour la variante taille (si non fourni, auto-généré)
 - `distributor_name` : Nom du distributeur (requis en mode distributeur)
 - `sku_distributor` : SKU du distributeur (requis en mode distributeur)
 - `image_1_url` à `image_8_url` : URLs des images (jusqu'à 8 images)
@@ -38,7 +40,7 @@ Ce document explique comment importer des produits via CSV et comment les varian
 ### Structure complète
 
 ```csv
-sku,name,category_name,manufacturer_name,color_name,size_name,primary_color_name,distributor_name,sku_distributor,image_1_url,image_2_url,...
+sku,name,category_name,manufacturer_name,primary_color_name,color_name,variant_sku,size_name,size_sku,distributor_name,sku_distributor,image_1_url,image_2_url,...,image_8_url
 ```
 
 ### Exemple minimal
@@ -51,9 +53,11 @@ PROD-001,Chaussures de sport,Chaussures,Nike
 ### Exemple complet
 
 ```csv
-sku,name,category_name,manufacturer_name,color_name,size_name,primary_color_name,image_1_url
-PROD-001,Chaussures de sport,Chaussures,Nike,Rouge Hawaii,42,Rouge,https://example.com/image1.jpg
+sku,name,category_name,manufacturer_name,primary_color_name,color_name,variant_sku,size_name,size_sku,image_1_url,image_2_url
+PROD-001,Chaussures de sport,Chaussures,Nike,Rouge,Rouge Hawaii,PROD-001-RH,42,PROD-001-RH-42,https://example.com/front.jpg,https://example.com/back.jpg
 ```
+
+> **Note :** Les colonnes `variant_sku` et `size_sku` sont optionnelles. Si elles ne sont pas fournies, le système génère automatiquement les SKU.
 
 ---
 

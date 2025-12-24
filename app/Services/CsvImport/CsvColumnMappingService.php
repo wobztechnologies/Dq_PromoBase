@@ -31,7 +31,9 @@ class CsvColumnMappingService
                 'manufacturer_name' => ['required' => true, 'label' => 'Fabricant'],
                 'primary_color_name' => ['required' => false, 'label' => 'Couleur principale'],
                 'color_name' => ['required' => false, 'label' => 'Couleur fabricant'],
+                'variant_sku' => ['required' => false, 'label' => 'SKU variante couleur'],
                 'size_name' => ['required' => false, 'label' => 'Taille'],
+                'size_sku' => ['required' => false, 'label' => 'SKU variante taille'],
             ],
             'manufacturer_color' => [
                 'name' => ['required' => true, 'label' => 'Nom'],

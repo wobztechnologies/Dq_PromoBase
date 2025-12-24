@@ -99,7 +99,9 @@ class CsvImportTemplateController extends Controller
             'manufacturer_name',
             'primary_color_name',
             'color_name',
+            'variant_sku',
             'size_name',
+            'size_sku',
         ];
 
         // Mode distributeur : ajouter les champs distributeur
@@ -143,13 +145,15 @@ class CsvImportTemplateController extends Controller
     protected function getProductExample(?string $mode): array
     {
         $example = [
-            'PROD-001',
-            'T-Shirt Coton Bio',
-            'Vêtements',
-            'Kariban',
-            'Gris',
-            'Ash Heather',
-            'XL',
+            'PROD-001',                    // sku
+            'T-Shirt Coton Bio',           // name
+            'Vêtements',                   // category_name
+            'Kariban',                     // manufacturer_name
+            'Gris',                        // primary_color_name
+            'Ash Heather',                 // color_name
+            'PROD-001-ASH',                // variant_sku (optionnel)
+            'XL',                          // size_name
+            'PROD-001-ASH-XL',             // size_sku (optionnel)
         ];
 
         if ($mode === 'distributor') {

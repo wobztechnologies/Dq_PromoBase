@@ -35,7 +35,9 @@ class ProductImportHandler implements ImportHandlerInterface
                 $manufacturerName = $row['manufacturer_name'] ?? null;
                 $colorName = $row['color_name'] ?? null;
                 $primaryColorName = $row['primary_color_name'] ?? null;
+                $variantSku = $row['variant_sku'] ?? null;
                 $sizeName = $row['size_name'] ?? null;
+                $sizeSku = $row['size_sku'] ?? null;
                 $skuDistributor = $row['sku_distributor'] ?? null;
                 $distributorName = $row['distributor_name'] ?? null;
                 
@@ -161,7 +163,8 @@ class ProductImportHandler implements ImportHandlerInterface
                         $colorVariant = new ProductColorVariant();
                         $colorVariant->product_id = $product->id;
                         $colorVariant->primary_color_id = $color->id;
-                        $colorVariant->sku = $sku . '_' . Str::slug($colorName);
+                        // Utiliser le SKU fourni ou auto-générer
+                        $colorVariant->sku = $variantSku ?: ($sku . '_' . Str::slug($colorName));
                         $colorVariant->save();
                     }
                 }
@@ -185,7 +188,8 @@ class ProductImportHandler implements ImportHandlerInterface
                         $sizeVariant->product_id = $product->id;
                         $sizeVariant->product_color_variant_id = $colorVariant?->id;
                         $sizeVariant->size_id = $size->id;
-                        $sizeVariant->sku = ($colorVariant?->sku ?? $sku) . '_' . Str::slug($sizeName);
+                        // Utiliser le SKU fourni ou auto-générer
+                        $sizeVariant->sku = $sizeSku ?: (($colorVariant?->sku ?? $sku) . '_' . Str::slug($sizeName));
                         $sizeVariant->save();
                     }
                 }
