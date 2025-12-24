@@ -16,3 +16,12 @@ Schedule::command('meshy:check-tasks')
     ->onFailure(function () {
         \Illuminate\Support\Facades\Log::error('Meshy check-tasks scheduled command failed');
     });
+
+// Planifier le traitement ML des images toutes les 5 minutes
+Schedule::command('ml:process-images --limit=50')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->runInBackground()
+    ->onFailure(function () {
+        \Illuminate\Support\Facades\Log::error('ML process-images scheduled command failed');
+    });
