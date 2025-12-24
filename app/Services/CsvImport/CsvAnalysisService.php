@@ -266,8 +266,8 @@ class CsvAnalysisService
         // Extraire les valeurs uniques en utilisant le mapping de colonnes
         $uniqueValues = $this->extractUniqueValuesWithMapping($allRecords, $columnMapping);
         
-        // Identifier les valeurs manquantes en DB
-        $missingValues = $this->identifyMissingValues($importType, $uniqueValues);
+        // Identifier les valeurs manquantes et mappées en DB
+        $analysisResult = $this->identifyMissingAndMappedValues($importType, $uniqueValues);
         
         // Extraire le contexte des couleurs fabricant pour le wizard
         $manufacturerColorContext = $uniqueValues['manufacturer_color_context'] ?? [];
@@ -276,7 +276,8 @@ class CsvAnalysisService
         
         return [
             'unique_values' => $uniqueValues,
-            'missing_values' => $missingValues,
+            'missing_values' => $analysisResult['missing'],
+            'mapped_values' => $analysisResult['mapped'],
             'manufacturer_color_context' => $manufacturerColorContext,
             'total_rows' => count($allRecords),
             'delimiter' => $delimiter,
@@ -342,101 +343,125 @@ class CsvAnalysisService
     }
 
     /**
-     * Identifier les valeurs manquantes en DB selon le type d'import
-     * Maintenant utilise les noms de champs cibles (après mapping)
+     * Identifier les valeurs manquantes et mappées en DB selon le type d'import
+     * Retourne les valeurs manquantes ET les valeurs automatiquement mappées
      */
-    protected function identifyMissingValues(string $importType, array $uniqueValues): array
+    protected function identifyMissingAndMappedValues(string $importType, array $uniqueValues): array
     {
         $missing = [];
+        $mapped = [];
         
         switch ($importType) {
             case 'product':
                 // Vérifier les catégories (champ mappé: category_name)
                 if (!empty($uniqueValues['category_name'])) {
-                    $missing['categories'] = $this->findMissingInDB(
+                    $result = $this->findMissingAndMappedInDB(
                         'categories',
                         'name',
                         $uniqueValues['category_name']
                     );
+                    if (!empty($result['missing'])) $missing['categories'] = $result['missing'];
+                    if (!empty($result['mapped'])) $mapped['categories'] = $result['mapped'];
                 }
                 
                 // Vérifier les fabricants (champ mappé: manufacturer_name)
                 if (!empty($uniqueValues['manufacturer_name'])) {
-                    $missing['manufacturers'] = $this->findMissingInDB(
+                    $result = $this->findMissingAndMappedInDB(
                         'manufacturers',
                         'name',
                         $uniqueValues['manufacturer_name']
                     );
+                    if (!empty($result['missing'])) $missing['manufacturers'] = $result['missing'];
+                    if (!empty($result['mapped'])) $mapped['manufacturers'] = $result['mapped'];
                 }
                 
                 // Vérifier les couleurs principales (champ mappé: primary_color_name)
                 if (!empty($uniqueValues['primary_color_name'])) {
-                    $missing['primary_colors'] = $this->findMissingInDB(
+                    $result = $this->findMissingAndMappedInDB(
                         'primary_colors',
                         'name',
                         $uniqueValues['primary_color_name'],
                         ['parent_id' => null, 'manufacturer_id' => null]
                     );
+                    if (!empty($result['missing'])) $missing['primary_colors'] = $result['missing'];
+                    if (!empty($result['mapped'])) $mapped['primary_colors'] = $result['mapped'];
                 }
                 
                 // Vérifier les couleurs fabricant avec contexte (manufacturer + color)
                 if (!empty($uniqueValues['manufacturer_color_pairs'])) {
                     $missingPairs = [];
+                    $mappedPairs = [];
                     foreach ($uniqueValues['manufacturer_color_pairs'] as $pair) {
-                        if (!$this->manufacturerColorExists($pair)) {
+                        $dbMatch = $this->findManufacturerColorMatch($pair);
+                        if ($dbMatch) {
+                            $mappedPairs[] = [
+                                'csv_value' => $pair,
+                                'db_value' => $dbMatch['name'],
+                                'db_id' => $dbMatch['id'],
+                            ];
+                        } else {
                             $missingPairs[] = $pair;
                         }
                     }
-                    if (!empty($missingPairs)) {
-                        $missing['manufacturer_colors'] = $missingPairs;
-                    }
+                    if (!empty($missingPairs)) $missing['manufacturer_colors'] = $missingPairs;
+                    if (!empty($mappedPairs)) $mapped['manufacturer_colors'] = $mappedPairs;
                 }
                 
                 // Vérifier les tailles (champ mappé: size_name)
                 if (!empty($uniqueValues['size_name'])) {
-                    $missing['sizes'] = $this->findMissingInDB(
+                    $result = $this->findMissingAndMappedInDB(
                         'sizes',
                         'name',
                         $uniqueValues['size_name']
                     );
+                    if (!empty($result['missing'])) $missing['sizes'] = $result['missing'];
+                    if (!empty($result['mapped'])) $mapped['sizes'] = $result['mapped'];
                 }
                 break;
                 
             case 'manufacturer_color':
                 // Vérifier les fabricants
                 if (!empty($uniqueValues['manufacturer_name'])) {
-                    $missing['manufacturers'] = $this->findMissingInDB(
+                    $result = $this->findMissingAndMappedInDB(
                         'manufacturers',
                         'name',
                         $uniqueValues['manufacturer_name']
                     );
+                    if (!empty($result['missing'])) $missing['manufacturers'] = $result['missing'];
+                    if (!empty($result['mapped'])) $mapped['manufacturers'] = $result['mapped'];
                 }
                 
                 // Vérifier les couleurs principales
                 if (!empty($uniqueValues['parent_name'])) {
-                    $missing['primary_colors'] = $this->findMissingInDB(
+                    $result = $this->findMissingAndMappedInDB(
                         'primary_colors',
                         'name',
-                        $uniqueValues['parent_name'],
+                        array_filter($uniqueValues['parent_name']),
                         ['parent_id' => null, 'manufacturer_id' => null]
                     );
+                    if (!empty($result['missing'])) $missing['primary_colors'] = $result['missing'];
+                    if (!empty($result['mapped'])) $mapped['primary_colors'] = $result['mapped'];
                 }
                 break;
                 
             case 'category':
                 // Vérifier les catégories parentes
                 if (!empty($uniqueValues['parent_name'])) {
-                    $missing['parent_categories'] = $this->findMissingInDB(
+                    $result = $this->findMissingAndMappedInDB(
                         'categories',
                         'name',
                         array_filter($uniqueValues['parent_name'])
                     );
+                    if (!empty($result['missing'])) $missing['parent_categories'] = $result['missing'];
+                    if (!empty($result['mapped'])) $mapped['parent_categories'] = $result['mapped'];
                 }
                 break;
         }
         
-        // Filtrer les tableaux vides
-        return array_filter($missing, fn($arr) => !empty($arr));
+        return [
+            'missing' => array_filter($missing, fn($arr) => !empty($arr)),
+            'mapped' => array_filter($mapped, fn($arr) => !empty($arr)),
+        ];
     }
 
     /**
@@ -445,44 +470,62 @@ class CsvAnalysisService
      */
     protected function manufacturerColorExists(string $pair): bool
     {
+        return $this->findManufacturerColorMatch($pair) !== null;
+    }
+    
+    /**
+     * Trouver une couleur fabricant et retourner ses infos (format: "manufacturer_name|color_name")
+     * Comparaison insensible à la casse
+     */
+    protected function findManufacturerColorMatch(string $pair): ?array
+    {
         if (!str_contains($pair, '|')) {
-            return false;
+            return null;
         }
         
         [$manufacturerName, $colorName] = explode('|', $pair, 2);
         
-        return DB::table('primary_colors')
+        $result = DB::table('primary_colors')
             ->join('manufacturers', 'primary_colors.manufacturer_id', '=', 'manufacturers.id')
             ->whereRaw('LOWER(manufacturers.name) = ?', [mb_strtolower($manufacturerName)])
             ->whereRaw('LOWER(primary_colors.name) = ?', [mb_strtolower($colorName)])
-            ->exists();
+            ->select('primary_colors.id', 'primary_colors.name', 'manufacturers.name as manufacturer_name')
+            ->first();
+        
+        if (!$result) {
+            return null;
+        }
+        
+        return [
+            'id' => $result->id,
+            'name' => $result->name,
+            'manufacturer_name' => $result->manufacturer_name,
+        ];
     }
     
     /**
-     * Trouver les valeurs qui n'existent pas en DB
+     * Trouver les valeurs manquantes ET mappées en DB
      * Comparaison insensible à la casse
+     * Retourne les valeurs mappées avec leur correspondance en DB
      */
-    protected function findMissingInDB(
+    protected function findMissingAndMappedInDB(
         string $table,
         string $column,
         array $values,
         array $additionalConditions = []
     ): array {
         if (empty($values)) {
-            return [];
+            return ['missing' => [], 'mapped' => []];
         }
         
         // Filtrer les valeurs vides
         $values = array_filter($values, fn($v) => !empty($v) && trim($v) !== '');
         
         if (empty($values)) {
-            return [];
+            return ['missing' => [], 'mapped' => []];
         }
         
-        // Préparer les valeurs en minuscules pour la comparaison
-        $lowerValues = array_map('mb_strtolower', $values);
-        
-        $query = DB::table($table);
+        $query = DB::table($table)->select('id', $column);
         
         foreach ($additionalConditions as $col => $condition) {
             if (is_array($condition) && isset($condition[0]) && $condition[0] === '!=') {
@@ -494,22 +537,59 @@ class CsvAnalysisService
             }
         }
         
-        // Récupérer toutes les valeurs existantes avec leur casse originale
-        $existingRecords = $query->pluck($column)->toArray();
+        // Récupérer toutes les valeurs existantes avec leur ID et casse originale
+        $existingRecords = $query->get();
         
-        // Créer un mapping lowercase -> original pour les existants
-        $existingLower = array_map('mb_strtolower', $existingRecords);
+        // Créer un mapping lowercase -> record pour les existants
+        $existingByLower = [];
+        foreach ($existingRecords as $record) {
+            $lowerName = mb_strtolower($record->$column);
+            $existingByLower[$lowerName] = [
+                'id' => $record->id,
+                'name' => $record->$column,
+            ];
+        }
         
-        // Trouver les valeurs qui n'existent pas (comparaison insensible à la casse)
+        // Séparer les valeurs manquantes et mappées
         $missing = [];
+        $mapped = [];
+        
         foreach ($values as $value) {
             $lowerValue = mb_strtolower($value);
-            if (!in_array($lowerValue, $existingLower)) {
+            if (isset($existingByLower[$lowerValue])) {
+                $dbRecord = $existingByLower[$lowerValue];
+                // Seulement ajouter aux mappées si la casse est différente
+                if ($value !== $dbRecord['name']) {
+                    $mapped[] = [
+                        'csv_value' => $value,
+                        'db_value' => $dbRecord['name'],
+                        'db_id' => $dbRecord['id'],
+                    ];
+                }
+                // Si la casse est identique, c'est une correspondance exacte, pas besoin de l'afficher
+            } else {
                 $missing[] = $value;
             }
         }
         
-        return array_values($missing);
+        return [
+            'missing' => array_values($missing),
+            'mapped' => $mapped,
+        ];
+    }
+    
+    /**
+     * Trouver les valeurs qui n'existent pas en DB (méthode legacy pour compatibilité)
+     * Comparaison insensible à la casse
+     */
+    protected function findMissingInDB(
+        string $table,
+        string $column,
+        array $values,
+        array $additionalConditions = []
+    ): array {
+        $result = $this->findMissingAndMappedInDB($table, $column, $values, $additionalConditions);
+        return $result['missing'];
     }
 
     /**
