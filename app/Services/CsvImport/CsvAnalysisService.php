@@ -2,6 +2,7 @@
 
 namespace App\Services\CsvImport;
 
+use App\Models\CsvImportMapping;
 use League\Csv\Reader;
 use Illuminate\Support\Facades\DB;
 
@@ -278,6 +279,7 @@ class CsvAnalysisService
             'unique_values' => $uniqueValues,
             'missing_values' => $analysisResult['missing'],
             'mapped_values' => $analysisResult['mapped'],
+            'saved_mappings' => $analysisResult['saved_mappings'] ?? [],
             'manufacturer_color_context' => $manufacturerColorContext,
             'total_rows' => count($allRecords),
             'delimiter' => $delimiter,
@@ -344,38 +346,42 @@ class CsvAnalysisService
 
     /**
      * Identifier les valeurs manquantes et mappées en DB selon le type d'import
-     * Retourne les valeurs manquantes ET les valeurs automatiquement mappées
+     * Retourne les valeurs manquantes, les valeurs automatiquement mappées, et les mappings sauvegardés
      */
     protected function identifyMissingAndMappedValues(string $importType, array $uniqueValues): array
     {
         $missing = [];
         $mapped = [];
+        $savedMappings = [];
         
         switch ($importType) {
             case 'product':
                 // Vérifier les catégories (champ mappé: category_name)
                 if (!empty($uniqueValues['category_name'])) {
-                    $result = $this->findMissingAndMappedInDB(
+                    $result = $this->findMissingMappedAndSaved(
                         'categories',
                         'name',
                         $uniqueValues['category_name']
                     );
                     if (!empty($result['missing'])) $missing['categories'] = $result['missing'];
                     if (!empty($result['mapped'])) $mapped['categories'] = $result['mapped'];
+                    if (!empty($result['saved'])) $savedMappings['categories'] = $result['saved'];
                 }
                 
                 // Vérifier les fabricants (champ mappé: manufacturer_name)
                 if (!empty($uniqueValues['manufacturer_name'])) {
-                    $result = $this->findMissingAndMappedInDB(
+                    $result = $this->findMissingMappedAndSaved(
                         'manufacturers',
                         'name',
                         $uniqueValues['manufacturer_name']
                     );
                     if (!empty($result['missing'])) $missing['manufacturers'] = $result['missing'];
                     if (!empty($result['mapped'])) $mapped['manufacturers'] = $result['mapped'];
+                    if (!empty($result['saved'])) $savedMappings['manufacturers'] = $result['saved'];
                 }
                 
                 // Vérifier les couleurs principales (champ mappé: primary_color_name)
+                // Note: pas de sauvegarde de mapping pour les couleurs
                 if (!empty($uniqueValues['primary_color_name'])) {
                     $result = $this->findMissingAndMappedInDB(
                         'primary_colors',
@@ -388,6 +394,7 @@ class CsvAnalysisService
                 }
                 
                 // Vérifier les couleurs fabricant avec contexte (manufacturer + color)
+                // Note: pas de sauvegarde de mapping pour les couleurs
                 if (!empty($uniqueValues['manufacturer_color_pairs'])) {
                     $missingPairs = [];
                     $mappedPairs = [];
@@ -409,29 +416,32 @@ class CsvAnalysisService
                 
                 // Vérifier les tailles (champ mappé: size_name)
                 if (!empty($uniqueValues['size_name'])) {
-                    $result = $this->findMissingAndMappedInDB(
+                    $result = $this->findMissingMappedAndSaved(
                         'sizes',
                         'name',
                         $uniqueValues['size_name']
                     );
                     if (!empty($result['missing'])) $missing['sizes'] = $result['missing'];
                     if (!empty($result['mapped'])) $mapped['sizes'] = $result['mapped'];
+                    if (!empty($result['saved'])) $savedMappings['sizes'] = $result['saved'];
                 }
                 break;
                 
             case 'manufacturer_color':
                 // Vérifier les fabricants
                 if (!empty($uniqueValues['manufacturer_name'])) {
-                    $result = $this->findMissingAndMappedInDB(
+                    $result = $this->findMissingMappedAndSaved(
                         'manufacturers',
                         'name',
                         $uniqueValues['manufacturer_name']
                     );
                     if (!empty($result['missing'])) $missing['manufacturers'] = $result['missing'];
                     if (!empty($result['mapped'])) $mapped['manufacturers'] = $result['mapped'];
+                    if (!empty($result['saved'])) $savedMappings['manufacturers'] = $result['saved'];
                 }
                 
                 // Vérifier les couleurs principales
+                // Note: pas de sauvegarde de mapping pour les couleurs
                 if (!empty($uniqueValues['parent_name'])) {
                     $result = $this->findMissingAndMappedInDB(
                         'primary_colors',
@@ -447,13 +457,14 @@ class CsvAnalysisService
             case 'category':
                 // Vérifier les catégories parentes
                 if (!empty($uniqueValues['parent_name'])) {
-                    $result = $this->findMissingAndMappedInDB(
+                    $result = $this->findMissingMappedAndSaved(
                         'categories',
                         'name',
                         array_filter($uniqueValues['parent_name'])
                     );
                     if (!empty($result['missing'])) $missing['parent_categories'] = $result['missing'];
                     if (!empty($result['mapped'])) $mapped['parent_categories'] = $result['mapped'];
+                    if (!empty($result['saved'])) $savedMappings['parent_categories'] = $result['saved'];
                 }
                 break;
         }
@@ -461,9 +472,133 @@ class CsvAnalysisService
         return [
             'missing' => array_filter($missing, fn($arr) => !empty($arr)),
             'mapped' => array_filter($mapped, fn($arr) => !empty($arr)),
+            'saved_mappings' => array_filter($savedMappings, fn($arr) => !empty($arr)),
         ];
     }
 
+    /**
+     * Trouver un mapping sauvegardé dans CsvImportMapping
+     */
+    protected function findSavedMapping(string $mappingType, string $sourceValue): ?array
+    {
+        $mapping = CsvImportMapping::findExisting($mappingType, $sourceValue);
+        
+        if ($mapping) {
+            return [
+                'target_id' => $mapping->target_id,
+                'target_type' => $mapping->target_type,
+                'target_name' => $mapping->target_name,
+            ];
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Trouver les valeurs manquantes, mappées en DB, et avec mapping sauvegardé
+     * Comparaison insensible à la casse
+     * Retourne les trois catégories de valeurs
+     */
+    protected function findMissingMappedAndSaved(
+        string $table,
+        string $column,
+        array $values,
+        array $additionalConditions = []
+    ): array {
+        if (empty($values)) {
+            return ['missing' => [], 'mapped' => [], 'saved' => []];
+        }
+        
+        // Filtrer les valeurs vides
+        $values = array_filter($values, fn($v) => !empty($v) && trim($v) !== '');
+        
+        if (empty($values)) {
+            return ['missing' => [], 'mapped' => [], 'saved' => []];
+        }
+        
+        // Convertir le nom de table en mapping_type pour CsvImportMapping
+        $mappingType = $this->tableMappingTypeMap($table);
+        
+        $query = DB::table($table)->select('id', $column);
+        
+        foreach ($additionalConditions as $col => $condition) {
+            if (is_array($condition) && isset($condition[0]) && $condition[0] === '!=') {
+                $query->whereNotNull($col);
+            } elseif ($condition === null) {
+                $query->whereNull($col);
+            } else {
+                $query->where($col, $condition);
+            }
+        }
+        
+        // Récupérer toutes les valeurs existantes avec leur ID et casse originale
+        $existingRecords = $query->get();
+        
+        // Créer un mapping lowercase -> record pour les existants
+        $existingByLower = [];
+        foreach ($existingRecords as $record) {
+            $lowerName = mb_strtolower($record->$column);
+            $existingByLower[$lowerName] = [
+                'id' => $record->id,
+                'name' => $record->$column,
+            ];
+        }
+        
+        // Séparer les valeurs manquantes, mappées et sauvegardées
+        $missing = [];
+        $mapped = [];
+        $saved = [];
+        
+        foreach ($values as $value) {
+            $lowerValue = mb_strtolower($value);
+            
+            // 1. D'abord vérifier si un mapping sauvegardé existe
+            $savedMapping = $this->findSavedMapping($mappingType, $value);
+            if ($savedMapping) {
+                $saved[] = [
+                    'csv_value' => $value,
+                    'db_value' => $savedMapping['target_name'],
+                    'db_id' => $savedMapping['target_id'],
+                ];
+                continue;
+            }
+            
+            // 2. Ensuite vérifier si la valeur existe en DB
+            if (isset($existingByLower[$lowerValue])) {
+                $dbRecord = $existingByLower[$lowerValue];
+                $mapped[] = [
+                    'csv_value' => $value,
+                    'db_value' => $dbRecord['name'],
+                    'db_id' => $dbRecord['id'],
+                    'exact_match' => ($value === $dbRecord['name']),
+                ];
+            } else {
+                // 3. Valeur manquante
+                $missing[] = $value;
+            }
+        }
+        
+        return [
+            'missing' => array_values($missing),
+            'mapped' => $mapped,
+            'saved' => $saved,
+        ];
+    }
+    
+    /**
+     * Convertir le nom de table en mapping_type pour CsvImportMapping
+     */
+    protected function tableMappingTypeMap(string $table): string
+    {
+        return match($table) {
+            'categories' => 'categories',
+            'manufacturers' => 'manufacturers',
+            'primary_colors' => 'primary_colors',
+            'sizes' => 'sizes',
+            default => $table,
+        };
+    }
+    
     /**
      * Vérifier si une couleur fabricant existe (format: "manufacturer_name|color_name")
      * Comparaison insensible à la casse

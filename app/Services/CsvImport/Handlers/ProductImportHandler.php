@@ -3,6 +3,7 @@
 namespace App\Services\CsvImport\Handlers;
 
 use App\Models\CsvImport;
+use App\Models\CsvImportMapping;
 use App\Models\Product;
 use App\Models\ProductColorVariant;
 use App\Models\ProductSizeVariant;
@@ -117,8 +118,9 @@ class ProductImportHandler implements ImportHandlerInterface
                         return false;
                     }
                 }
-                // Si les deux colonnes sont fournies : couleur principale + couleur fabricant
-                elseif ($primaryColorName && $colorName) {
+                
+                // Si les deux colonnes sont fournies et pas de mapping trouvé : couleur principale + couleur fabricant
+                if (!$color && $primaryColorName && $colorName) {
                     // Chercher la couleur principale (d'abord par mapping, sinon par nom - insensible à la casse)
                     $primaryColor = $primaryColorMappedId 
                         ? PrimaryColor::find($primaryColorMappedId)
@@ -144,7 +146,7 @@ class ProductImportHandler implements ImportHandlerInterface
                     }
                 }
                 // Si seulement la couleur principale est fournie : produit simple avec couleur principale
-                elseif ($primaryColorName && !$colorName) {
+                if (!$color && $primaryColorName && !$colorName) {
                     $color = $primaryColorMappedId 
                         ? PrimaryColor::find($primaryColorMappedId)
                         : PrimaryColor::whereRaw('LOWER(name) = ?', [mb_strtolower($primaryColorName)])
@@ -164,7 +166,7 @@ class ProductImportHandler implements ImportHandlerInterface
                     }
                 }
                 // Si seulement color_name est fourni (compatibilité avec anciens imports)
-                elseif ($colorName) {
+                if (!$color && $colorName) {
                     // Chercher d'abord une couleur fabricant avec ce nom pour CE fabricant (insensible à la casse)
                     $color = PrimaryColor::whereRaw('LOWER(name) = ?', [mb_strtolower($colorName)])
                         ->where('manufacturer_id', $manufacturer->id)
@@ -213,9 +215,24 @@ class ProductImportHandler implements ImportHandlerInterface
                 if ($sizeName) {
                     // Vérifier si un mapping a été fait dans le wizard (size_name_mapped_id)
                     $sizeMappedId = $row['size_name_mapped_id'] ?? null;
-                    $size = $sizeMappedId 
-                        ? Size::find($sizeMappedId)
-                        : Size::whereRaw('LOWER(name) = ?', [mb_strtolower($sizeName)])->first();
+                    $size = null;
+                    
+                    if ($sizeMappedId) {
+                        $size = Size::find($sizeMappedId);
+                    }
+                    
+                    // Si pas de mapping du wizard, chercher dans les mappings sauvegardés
+                    if (!$size) {
+                        $savedMapping = CsvImportMapping::findExisting('sizes', $sizeName);
+                        if ($savedMapping && $savedMapping->target_id) {
+                            $size = Size::find($savedMapping->target_id);
+                        }
+                    }
+                    
+                    // Sinon chercher par nom (insensible à la casse)
+                    if (!$size) {
+                        $size = Size::whereRaw('LOWER(name) = ?', [mb_strtolower($sizeName)])->first();
+                    }
                     
                     if (!$size) {
                         $import->addLog('error', "Taille '{$sizeName}' non trouvée", $row, $rowNumber, $sku);

@@ -138,6 +138,12 @@ class ImportWizard extends Page implements HasForms
                 Forms\Components\Section::make('Étape 3 : Analyse des valeurs')
                     ->description('Vérifiez les correspondances automatiques et gérez les valeurs manquantes')
                     ->schema([
+                        // Section des mappings sauvegardés (réutilisés)
+                        Forms\Components\Placeholder::make('saved_mappings_info')
+                            ->label('')
+                            ->content(fn () => $this->renderSavedMappings())
+                            ->visible(fn () => !empty($this->analysisResult['saved_mappings'] ?? [])),
+                        
                         // Section des valeurs automatiquement mappées
                         Forms\Components\Placeholder::make('mapped_values_info')
                             ->label('')
@@ -706,6 +712,82 @@ class ImportWizard extends Page implements HasForms
     }
     
     /**
+     * Afficher les mappings sauvegardés (réutilisés depuis des imports précédents)
+     */
+    protected function renderSavedMappings(): \Illuminate\Support\HtmlString
+    {
+        if (!$this->analysisResult) {
+            return new \Illuminate\Support\HtmlString('');
+        }
+        
+        $savedMappings = $this->analysisResult['saved_mappings'] ?? [];
+        
+        if (empty($savedMappings)) {
+            return new \Illuminate\Support\HtmlString('');
+        }
+        
+        $typeLabels = [
+            'categories' => 'Catégories',
+            'manufacturers' => 'Fabricants',
+            'primary_colors' => 'Couleurs principales',
+            'manufacturer_colors' => 'Couleurs fabricant',
+            'sizes' => 'Tailles',
+            'parent_categories' => 'Catégories parentes',
+        ];
+        
+        $totalSaved = 0;
+        foreach ($savedMappings as $values) {
+            $totalSaved += count($values);
+        }
+        
+        $html = '<div class="mb-6">';
+        $html .= '<div class="p-4 bg-blue-50 border border-blue-200 rounded-lg">';
+        $html .= '<h3 class="font-semibold text-blue-800 mb-3">💾 Mappings sauvegardés réutilisés (' . $totalSaved . ')</h3>';
+        $html .= '<p class="text-sm text-blue-600 mb-4">Ces correspondances ont été définies lors d\'imports précédents et seront automatiquement appliquées.</p>';
+        
+        $html .= '<div class="space-y-3">';
+        foreach ($savedMappings as $type => $values) {
+            if (empty($values)) continue;
+            
+            $label = $typeLabels[$type] ?? $type;
+            $html .= '<div class="border-l-4 border-blue-400 pl-3">';
+            $html .= '<p class="font-medium text-blue-700 text-sm">' . $label . ' (' . count($values) . '):</p>';
+            $html .= '<div class="mt-1 space-y-1">';
+            
+            foreach ($values as $mapping) {
+                $csvValue = $mapping['csv_value'] ?? '';
+                $dbValue = $mapping['db_value'] ?? '';
+                
+                // Pour les couleurs fabricant, afficher de manière plus lisible
+                if ($type === 'manufacturer_colors' && str_contains($csvValue, '|')) {
+                    [$manufacturer, $color] = explode('|', $csvValue, 2);
+                    $csvDisplay = htmlspecialchars($color) . ' (' . htmlspecialchars($manufacturer) . ')';
+                    $dbDisplay = htmlspecialchars($dbValue);
+                } else {
+                    $csvDisplay = htmlspecialchars($csvValue);
+                    $dbDisplay = htmlspecialchars($dbValue);
+                }
+                
+                $html .= '<div class="flex items-center gap-2 text-sm">';
+                $html .= '<span class="text-blue-600">💾</span>';
+                $html .= '<span class="px-2 py-0.5 bg-blue-100 text-blue-700 rounded">' . $csvDisplay . '</span>';
+                $html .= '<span class="text-gray-400">→</span>';
+                $html .= '<span class="px-2 py-0.5 bg-green-100 text-green-700 rounded">' . $dbDisplay . '</span>';
+                $html .= '</div>';
+            }
+            
+            $html .= '</div>';
+            $html .= '</div>';
+        }
+        $html .= '</div>';
+        
+        $html .= '</div>';
+        $html .= '</div>';
+        
+        return new \Illuminate\Support\HtmlString($html);
+    }
+    
+    /**
      * Afficher les valeurs automatiquement mappées (correspondances trouvées en base)
      */
     protected function renderMappedValues(): \Illuminate\Support\HtmlString
@@ -1115,10 +1197,50 @@ class ImportWizard extends Page implements HasForms
             } elseif ($action === 'map') {
                 $targetId = $mapping['target_id'] ?? null;
                 if ($targetId) {
-                    $matchingService->createMapping($type, $sourceValue, $targetId, Auth::id());
+                    // Ne pas sauvegarder les mappings pour les couleurs
+                    if (in_array($type, ['primary_colors', 'manufacturer_colors'])) {
+                        continue;
+                    }
+                    
+                    // Déterminer le targetType et targetName basé sur le type de mapping
+                    $targetInfo = $this->getTargetInfoForMapping($type, $targetId);
+                    if ($targetInfo) {
+                        $matchingService->createMapping(
+                            $type, 
+                            $sourceValue, 
+                            $targetInfo['type'], 
+                            $targetId, 
+                            $targetInfo['name'], 
+                            Auth::id()
+                        );
+                    }
                 }
             }
         }
+    }
+    
+    /**
+     * Obtenir le type de classe et le nom de la cible pour un mapping
+     */
+    protected function getTargetInfoForMapping(string $type, string $targetId): ?array
+    {
+        $entity = match($type) {
+            'categories', 'parent_categories' => \App\Models\Category::find($targetId),
+            'manufacturers' => \App\Models\Manufacturer::find($targetId),
+            'primary_colors' => \App\Models\PrimaryColor::whereNull('manufacturer_id')->find($targetId),
+            'manufacturer_colors' => \App\Models\PrimaryColor::whereNotNull('manufacturer_id')->find($targetId),
+            'sizes' => \App\Models\Size::find($targetId),
+            default => null,
+        };
+        
+        if (!$entity) {
+            return null;
+        }
+        
+        return [
+            'type' => get_class($entity),
+            'name' => $entity->name,
+        ];
     }
 
     protected function createNewValue(string $type, string $sourceValue, array $mappingData): void
