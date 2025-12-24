@@ -286,6 +286,12 @@ class ImportWizard extends Page implements HasForms
             return false;
         }
         
+        // Synchroniser le columnMapping avec les données du formulaire
+        // Les champs Filament stockent les valeurs dans $this->data['column_mapping']
+        if (!empty($this->data['column_mapping'])) {
+            $this->columnMapping = array_merge($this->columnMapping, $this->data['column_mapping']);
+        }
+        
         $mappingService = app(CsvColumnMappingService::class);
         $expectedFields = $mappingService->getExpectedFields($type, $mode);
         $errors = $mappingService->validateMapping($this->columnMapping, $expectedFields);
@@ -539,6 +545,11 @@ class ImportWizard extends Page implements HasForms
         
         try {
             $type = $this->data['type'] ?? null;
+            
+            // Synchroniser le columnMapping avec les données du formulaire
+            if (!empty($this->data['column_mapping'])) {
+                $this->columnMapping = array_merge($this->columnMapping, $this->data['column_mapping']);
+            }
             
             $analysisService = app(CsvAnalysisService::class);
             $this->analysisResult = $analysisService->analyzeWithMapping($this->uploadedFilePath, $type, $this->columnMapping);
@@ -917,6 +928,11 @@ class ImportWizard extends Page implements HasForms
         
         try {
             $this->processValueMappings();
+            
+            // Synchroniser le columnMapping avec les données du formulaire une dernière fois
+            if (!empty($this->data['column_mapping'])) {
+                $this->columnMapping = array_merge($this->columnMapping, $this->data['column_mapping']);
+            }
             
             // Le mode n'est applicable que pour les imports de type "product"
             $mode = null;
