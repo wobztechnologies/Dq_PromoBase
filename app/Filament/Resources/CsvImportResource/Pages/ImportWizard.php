@@ -706,7 +706,7 @@ class ImportWizard extends Page implements HasForms
     }
     
     /**
-     * Afficher les valeurs automatiquement mappées (correspondances insensibles à la casse)
+     * Afficher les valeurs automatiquement mappées (correspondances trouvées en base)
      */
     protected function renderMappedValues(): \Illuminate\Support\HtmlString
     {
@@ -729,23 +729,44 @@ class ImportWizard extends Page implements HasForms
             'parent_categories' => 'Catégories parentes',
         ];
         
+        // Compter les correspondances exactes et celles avec différence de casse
+        $totalMapped = 0;
+        $totalCaseDiff = 0;
+        foreach ($mappedValues as $values) {
+            foreach ($values as $mapping) {
+                $totalMapped++;
+                if (!($mapping['exact_match'] ?? true)) {
+                    $totalCaseDiff++;
+                }
+            }
+        }
+        
         $html = '<div class="mb-6">';
-        $html .= '<div class="p-4 bg-blue-50 border border-blue-200 rounded-lg">';
-        $html .= '<h3 class="font-semibold text-blue-800 mb-3">✓ Valeurs automatiquement mappées</h3>';
-        $html .= '<p class="text-sm text-blue-600 mb-4">Ces valeurs du CSV ont été automatiquement associées à des valeurs existantes en base de données (correspondance insensible à la casse).</p>';
+        $html .= '<div class="p-4 bg-green-50 border border-green-200 rounded-lg">';
+        $html .= '<h3 class="font-semibold text-green-800 mb-3">✓ Valeurs trouvées en base de données (' . $totalMapped . ')</h3>';
+        
+        if ($totalCaseDiff > 0) {
+            $html .= '<p class="text-sm text-green-600 mb-4">';
+            $html .= 'Les valeurs du CSV ont été associées aux valeurs existantes. ';
+            $html .= '<span class="text-amber-600">⚠ ' . $totalCaseDiff . ' correspondance(s) avec différence de casse.</span>';
+            $html .= '</p>';
+        } else {
+            $html .= '<p class="text-sm text-green-600 mb-4">Toutes les correspondances sont exactes.</p>';
+        }
         
         $html .= '<div class="space-y-3">';
         foreach ($mappedValues as $type => $values) {
             if (empty($values)) continue;
             
             $label = $typeLabels[$type] ?? $type;
-            $html .= '<div class="border-l-4 border-blue-400 pl-3">';
-            $html .= '<p class="font-medium text-blue-700 text-sm">' . $label . ' (' . count($values) . '):</p>';
+            $html .= '<div class="border-l-4 border-green-400 pl-3">';
+            $html .= '<p class="font-medium text-green-700 text-sm">' . $label . ' (' . count($values) . '):</p>';
             $html .= '<div class="mt-1 space-y-1">';
             
             foreach ($values as $mapping) {
                 $csvValue = $mapping['csv_value'] ?? '';
                 $dbValue = $mapping['db_value'] ?? '';
+                $isExactMatch = $mapping['exact_match'] ?? true;
                 
                 // Pour les couleurs fabricant, afficher de manière plus lisible
                 if ($type === 'manufacturer_colors' && str_contains($csvValue, '|')) {
@@ -758,9 +779,19 @@ class ImportWizard extends Page implements HasForms
                 }
                 
                 $html .= '<div class="flex items-center gap-2 text-sm">';
-                $html .= '<span class="px-2 py-0.5 bg-blue-100 text-blue-700 rounded">' . $csvDisplay . '</span>';
-                $html .= '<span class="text-blue-400">→</span>';
-                $html .= '<span class="px-2 py-0.5 bg-green-100 text-green-700 rounded">' . $dbDisplay . '</span>';
+                
+                if ($isExactMatch) {
+                    // Correspondance exacte - afficher simplement la valeur
+                    $html .= '<span class="text-green-600">✓</span>';
+                    $html .= '<span class="px-2 py-0.5 bg-green-100 text-green-700 rounded">' . $dbDisplay . '</span>';
+                } else {
+                    // Différence de casse - afficher CSV → DB
+                    $html .= '<span class="text-amber-500">~</span>';
+                    $html .= '<span class="px-2 py-0.5 bg-amber-100 text-amber-700 rounded">' . $csvDisplay . '</span>';
+                    $html .= '<span class="text-gray-400">→</span>';
+                    $html .= '<span class="px-2 py-0.5 bg-green-100 text-green-700 rounded">' . $dbDisplay . '</span>';
+                }
+                
                 $html .= '</div>';
             }
             

@@ -558,15 +558,13 @@ class CsvAnalysisService
             $lowerValue = mb_strtolower($value);
             if (isset($existingByLower[$lowerValue])) {
                 $dbRecord = $existingByLower[$lowerValue];
-                // Seulement ajouter aux mappées si la casse est différente
-                if ($value !== $dbRecord['name']) {
-                    $mapped[] = [
-                        'csv_value' => $value,
-                        'db_value' => $dbRecord['name'],
-                        'db_id' => $dbRecord['id'],
-                    ];
-                }
-                // Si la casse est identique, c'est une correspondance exacte, pas besoin de l'afficher
+                // Ajouter toutes les correspondances trouvées
+                $mapped[] = [
+                    'csv_value' => $value,
+                    'db_value' => $dbRecord['name'],
+                    'db_id' => $dbRecord['id'],
+                    'exact_match' => ($value === $dbRecord['name']), // Indiquer si c'est une correspondance exacte
+                ];
             } else {
                 $missing[] = $value;
             }
