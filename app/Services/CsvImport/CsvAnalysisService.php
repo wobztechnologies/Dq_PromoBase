@@ -269,9 +269,15 @@ class CsvAnalysisService
         // Identifier les valeurs manquantes en DB
         $missingValues = $this->identifyMissingValues($importType, $uniqueValues);
         
+        // Extraire le contexte des couleurs fabricant pour le wizard
+        $manufacturerColorContext = $uniqueValues['manufacturer_color_context'] ?? [];
+        unset($uniqueValues['manufacturer_color_context']);
+        unset($uniqueValues['manufacturer_color_pairs']);
+        
         return [
             'unique_values' => $uniqueValues,
             'missing_values' => $missingValues,
+            'manufacturer_color_context' => $manufacturerColorContext,
             'total_rows' => count($allRecords),
             'delimiter' => $delimiter,
             'enclosure' => $enclosure,
@@ -299,6 +305,37 @@ class CsvAnalysisService
             }
             
             $uniqueValues[$targetField] = array_values(array_unique($values));
+        }
+        
+        // Extraire les paires fabricant/couleur pour les couleurs fabricant
+        if (!empty($columnMapping['color_name']) && !empty($columnMapping['manufacturer_name'])) {
+            $manufacturerColorPairs = [];
+            $manufacturerColorContext = [];
+            
+            foreach ($records as $record) {
+                $colorName = trim($record[$columnMapping['color_name']] ?? '');
+                $manufacturerName = trim($record[$columnMapping['manufacturer_name']] ?? '');
+                $primaryColorName = !empty($columnMapping['primary_color_name']) 
+                    ? trim($record[$columnMapping['primary_color_name']] ?? '') 
+                    : '';
+                
+                if ($colorName && $manufacturerName) {
+                    $key = $manufacturerName . '|' . $colorName;
+                    $manufacturerColorPairs[$key] = true;
+                    
+                    // Stocker le contexte pour permettre la création ultérieure
+                    if ($primaryColorName && !isset($manufacturerColorContext[$key])) {
+                        $manufacturerColorContext[$key] = [
+                            'manufacturer_name' => $manufacturerName,
+                            'color_name' => $colorName,
+                            'primary_color_name' => $primaryColorName,
+                        ];
+                    }
+                }
+            }
+            
+            $uniqueValues['manufacturer_color_pairs'] = array_keys($manufacturerColorPairs);
+            $uniqueValues['manufacturer_color_context'] = $manufacturerColorContext;
         }
         
         return $uniqueValues;
@@ -342,14 +379,17 @@ class CsvAnalysisService
                     );
                 }
                 
-                // Vérifier les couleurs fabricant (champ mappé: color_name)
-                if (!empty($uniqueValues['color_name'])) {
-                    $missing['manufacturer_colors'] = $this->findMissingInDB(
-                        'primary_colors',
-                        'name',
-                        $uniqueValues['color_name'],
-                        ['parent_id' => ['!=', null], 'manufacturer_id' => ['!=', null]]
-                    );
+                // Vérifier les couleurs fabricant avec contexte (manufacturer + color)
+                if (!empty($uniqueValues['manufacturer_color_pairs'])) {
+                    $missingPairs = [];
+                    foreach ($uniqueValues['manufacturer_color_pairs'] as $pair) {
+                        if (!$this->manufacturerColorExists($pair)) {
+                            $missingPairs[] = $pair;
+                        }
+                    }
+                    if (!empty($missingPairs)) {
+                        $missing['manufacturer_colors'] = $missingPairs;
+                    }
                 }
                 
                 // Vérifier les tailles (champ mappé: size_name)
@@ -399,6 +439,24 @@ class CsvAnalysisService
         return array_filter($missing, fn($arr) => !empty($arr));
     }
 
+    /**
+     * Vérifier si une couleur fabricant existe (format: "manufacturer_name|color_name")
+     */
+    protected function manufacturerColorExists(string $pair): bool
+    {
+        if (!str_contains($pair, '|')) {
+            return false;
+        }
+        
+        [$manufacturerName, $colorName] = explode('|', $pair, 2);
+        
+        return DB::table('primary_colors')
+            ->join('manufacturers', 'primary_colors.manufacturer_id', '=', 'manufacturers.id')
+            ->where('manufacturers.name', $manufacturerName)
+            ->where('primary_colors.name', $colorName)
+            ->exists();
+    }
+    
     /**
      * Trouver les valeurs qui n'existent pas en DB
      */

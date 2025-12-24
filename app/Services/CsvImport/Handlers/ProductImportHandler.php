@@ -295,12 +295,32 @@ class ProductImportHandler implements ImportHandlerInterface
             if (!empty($row['distributor_name'])) {
                 $values['distributor'][] = $row['distributor_name'];
             }
-            if (!empty($row['color_name'])) {
-                $values['primary_color'][] = $row['color_name'];
-            }
+            
+            // Couleurs principales (utilisées seules ou comme parent)
             if (!empty($row['primary_color_name'])) {
                 $values['primary_color'][] = $row['primary_color_name'];
             }
+            
+            // Couleurs fabricant : nécessitent le contexte du fabricant
+            // Format: "manufacturer_name|color_name" pour identifier uniquement
+            if (!empty($row['color_name']) && !empty($row['manufacturer_name'])) {
+                $manufacturerColorKey = $row['manufacturer_name'] . '|' . $row['color_name'];
+                $values['manufacturer_color'][] = $manufacturerColorKey;
+                
+                // Si primary_color_name est fourni, on ajoute aussi cette info pour la création
+                if (!empty($row['primary_color_name'])) {
+                    $values['manufacturer_color_context'][$manufacturerColorKey] = [
+                        'manufacturer_name' => $row['manufacturer_name'],
+                        'color_name' => $row['color_name'],
+                        'primary_color_name' => $row['primary_color_name'],
+                    ];
+                }
+            }
+            // Si color_name est fourni sans primary_color_name, chercher comme couleur principale aussi
+            elseif (!empty($row['color_name']) && empty($row['primary_color_name'])) {
+                $values['primary_color'][] = $row['color_name'];
+            }
+            
             if (!empty($row['size_name'])) {
                 $values['size'][] = $row['size_name'];
             }
@@ -308,7 +328,9 @@ class ProductImportHandler implements ImportHandlerInterface
         
         // Dédupliquer
         foreach ($values as $key => $val) {
-            $values[$key] = array_unique($val);
+            if ($key !== 'manufacturer_color_context') {
+                $values[$key] = array_unique($val);
+            }
         }
         
         return $values;

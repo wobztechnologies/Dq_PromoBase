@@ -66,15 +66,39 @@ class MatchingService
             'category' => Category::where('name', $sourceValue)->first(),
             'distributor' => Distributor::where('name', $sourceValue)->first(),
             'manufacturer' => Manufacturer::where('name', $sourceValue)->first(),
-            'manufacturer_color' => PrimaryColor::where('name', $sourceValue)
-                ->whereNotNull('manufacturer_id')
-                ->first(),
+            'manufacturer_color' => $this->findManufacturerColor($sourceValue),
             'size' => Size::where('name', $sourceValue)->first(),
             'primary_color' => PrimaryColor::where('name', $sourceValue)
                 ->whereNull('manufacturer_id')
+                ->whereNull('parent_id')
                 ->first(),
             default => null,
         };
+    }
+    
+    /**
+     * Trouver une couleur fabricant par le format "manufacturer_name|color_name"
+     */
+    protected function findManufacturerColor(string $sourceValue): ?PrimaryColor
+    {
+        // Le format est "manufacturer_name|color_name"
+        if (str_contains($sourceValue, '|')) {
+            [$manufacturerName, $colorName] = explode('|', $sourceValue, 2);
+            
+            $manufacturer = Manufacturer::where('name', $manufacturerName)->first();
+            if (!$manufacturer) {
+                return null;
+            }
+            
+            return PrimaryColor::where('name', $colorName)
+                ->where('manufacturer_id', $manufacturer->id)
+                ->first();
+        }
+        
+        // Fallback: chercher par nom seul (compatibilité)
+        return PrimaryColor::where('name', $sourceValue)
+            ->whereNotNull('manufacturer_id')
+            ->first();
     }
 
     /**

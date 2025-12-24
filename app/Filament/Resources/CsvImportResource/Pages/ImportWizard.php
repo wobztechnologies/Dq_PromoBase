@@ -176,8 +176,31 @@ class ImportWizard extends Page implements HasForms
                                 
                                 Forms\Components\TextInput::make('new_value')
                                     ->label('Nom de la nouvelle valeur')
-                                    ->visible(fn ($get) => $get('action') === 'create')
-                                    ->required(fn ($get) => $get('action') === 'create'),
+                                    ->visible(fn ($get) => $get('action') === 'create' && $get('type') !== 'manufacturer_colors')
+                                    ->required(fn ($get) => $get('action') === 'create' && $get('type') !== 'manufacturer_colors'),
+                                
+                                // Champs spécifiques pour la création de couleur fabricant
+                                Forms\Components\TextInput::make('manufacturer_color_name')
+                                    ->label('Nom de la couleur')
+                                    ->helperText('Laissez vide pour utiliser le nom du CSV')
+                                    ->visible(fn ($get) => $get('action') === 'create' && $get('type') === 'manufacturer_colors'),
+                                
+                                Forms\Components\Select::make('parent_color_id')
+                                    ->label('Couleur principale parente')
+                                    ->options(fn () => \App\Models\PrimaryColor::whereNull('parent_id')
+                                        ->whereNull('manufacturer_id')
+                                        ->orderBy('name')
+                                        ->pluck('name', 'id')
+                                        ->toArray())
+                                    ->searchable()
+                                    ->visible(fn ($get) => $get('action') === 'create' && $get('type') === 'manufacturer_colors' && !$this->hasParentColorInContext($get('source_value')))
+                                    ->required(fn ($get) => $get('action') === 'create' && $get('type') === 'manufacturer_colors' && !$this->hasParentColorInContext($get('source_value')))
+                                    ->helperText('Sélectionnez la couleur principale parente pour cette couleur fabricant'),
+                                
+                                Forms\Components\Placeholder::make('parent_color_info')
+                                    ->label('')
+                                    ->content(fn ($get) => $this->getParentColorInfo($get('source_value')))
+                                    ->visible(fn ($get) => $get('action') === 'create' && $get('type') === 'manufacturer_colors' && $this->hasParentColorInContext($get('source_value'))),
                             ])
                             ->columns(3)
                             ->defaultItems(0)
@@ -700,9 +723,23 @@ class ImportWizard extends Page implements HasForms
             $html .= '<p class="font-medium text-yellow-800">' . $label . ' manquant(e)s (' . count($values) . '):</p>';
             $html .= '<div class="flex flex-wrap gap-2 mt-2">';
             foreach ($values as $value) {
-                $html .= '<span class="px-2 py-1 bg-yellow-100 text-yellow-800 text-sm rounded">' . htmlspecialchars($value) . '</span>';
+                // Pour les couleurs fabricant, afficher de manière plus lisible
+                if ($type === 'manufacturer_colors' && str_contains($value, '|')) {
+                    [$manufacturer, $color] = explode('|', $value, 2);
+                    $displayValue = htmlspecialchars($color) . ' <span class="text-yellow-600">(' . htmlspecialchars($manufacturer) . ')</span>';
+                    $html .= '<span class="px-2 py-1 bg-yellow-100 text-yellow-800 text-sm rounded">' . $displayValue . '</span>';
+                } else {
+                    $html .= '<span class="px-2 py-1 bg-yellow-100 text-yellow-800 text-sm rounded">' . htmlspecialchars($value) . '</span>';
+                }
             }
             $html .= '</div>';
+            
+            // Ajouter une note explicative pour les couleurs fabricant
+            if ($type === 'manufacturer_colors') {
+                $html .= '<p class="mt-2 text-sm text-yellow-600">';
+                $html .= '<strong>Note:</strong> Pour créer une couleur fabricant, assurez-vous que "primary_color_name" est renseigné dans le CSV pour définir la couleur principale parente.';
+                $html .= '</p>';
+            }
             $html .= '</div>';
         }
         
@@ -791,7 +828,64 @@ class ImportWizard extends Page implements HasForms
         }
         
         $values = $this->analysisResult['missing_values'][$type] ?? [];
+        
+        // Pour les couleurs fabricant, afficher de manière plus lisible
+        if ($type === 'manufacturer_colors') {
+            $options = [];
+            foreach ($values as $value) {
+                if (str_contains($value, '|')) {
+                    [$manufacturer, $color] = explode('|', $value, 2);
+                    $options[$value] = "{$color} ({$manufacturer})";
+                } else {
+                    $options[$value] = $value;
+                }
+            }
+            return $options;
+        }
+        
         return array_combine($values, $values);
+    }
+    
+    /**
+     * Vérifier si le contexte contient une couleur principale parente pour une couleur fabricant
+     */
+    protected function hasParentColorInContext(?string $sourceValue): bool
+    {
+        if (!$sourceValue) {
+            return false;
+        }
+        
+        $context = $this->analysisResult['manufacturer_color_context'][$sourceValue] ?? null;
+        if (!$context || empty($context['primary_color_name'])) {
+            return false;
+        }
+        
+        // Vérifier que la couleur principale existe en base
+        return \App\Models\PrimaryColor::where('name', $context['primary_color_name'])
+            ->whereNull('parent_id')
+            ->whereNull('manufacturer_id')
+            ->exists();
+    }
+    
+    /**
+     * Obtenir les informations sur la couleur principale parente depuis le contexte
+     */
+    protected function getParentColorInfo(?string $sourceValue): \Illuminate\Support\HtmlString
+    {
+        if (!$sourceValue) {
+            return new \Illuminate\Support\HtmlString('');
+        }
+        
+        $context = $this->analysisResult['manufacturer_color_context'][$sourceValue] ?? null;
+        if (!$context || empty($context['primary_color_name'])) {
+            return new \Illuminate\Support\HtmlString('');
+        }
+        
+        return new \Illuminate\Support\HtmlString(
+            '<span class="text-sm text-green-600">✓ Couleur parente: <strong>' . 
+            htmlspecialchars($context['primary_color_name']) . 
+            '</strong> (définie dans le CSV)</span>'
+        );
     }
 
     protected function getExistingValuesForType(?string $type): array
@@ -878,8 +972,7 @@ class ImportWizard extends Page implements HasForms
             }
             
             if ($action === 'create') {
-                $newValue = $mapping['new_value'] ?? $sourceValue;
-                $this->createNewValue($type, $sourceValue, $newValue);
+                $this->createNewValue($type, $sourceValue, $mapping);
             } elseif ($action === 'map') {
                 $targetId = $mapping['target_id'] ?? null;
                 if ($targetId) {
@@ -889,21 +982,95 @@ class ImportWizard extends Page implements HasForms
         }
     }
 
-    protected function createNewValue(string $type, string $sourceValue, string $newValue): void
+    protected function createNewValue(string $type, string $sourceValue, array $mappingData): void
     {
         $matchingService = app(MatchingService::class);
+        $newValue = $mappingData['new_value'] ?? $sourceValue;
         
         $entity = match($type) {
             'categories', 'parent_categories' => \App\Models\Category::create(['name' => $newValue]),
             'manufacturers' => \App\Models\Manufacturer::create(['name' => $newValue]),
             'primary_colors' => \App\Models\PrimaryColor::create(['name' => $newValue]),
+            'manufacturer_colors' => $this->createManufacturerColor($sourceValue, $mappingData),
             'sizes' => \App\Models\Size::create(['name' => $newValue]),
             default => null,
         };
         
         if ($entity) {
-            $matchingService->createMapping($type, $sourceValue, $entity->id, Auth::id());
+            $matchingService->createMapping($type, $sourceValue, get_class($entity), $entity->id, $entity->name, Auth::id());
         }
+    }
+    
+    /**
+     * Créer une couleur fabricant avec le contexte approprié
+     * Le sourceValue est au format "manufacturer_name|color_name"
+     */
+    protected function createManufacturerColor(string $sourceValue, array $mappingData): ?\App\Models\PrimaryColor
+    {
+        // Extraire le contexte du sourceValue
+        if (!str_contains($sourceValue, '|')) {
+            Notification::make()
+                ->title('Erreur')
+                ->body('Format de couleur fabricant invalide')
+                ->danger()
+                ->send();
+            return null;
+        }
+        
+        [$manufacturerName, $colorName] = explode('|', $sourceValue, 2);
+        
+        // Trouver le fabricant
+        $manufacturer = \App\Models\Manufacturer::where('name', $manufacturerName)->first();
+        if (!$manufacturer) {
+            Notification::make()
+                ->title('Erreur')
+                ->body("Fabricant '{$manufacturerName}' non trouvé. Créez-le d'abord.")
+                ->danger()
+                ->send();
+            return null;
+        }
+        
+        // Déterminer la couleur principale parente
+        $parentColor = null;
+        
+        // 1. D'abord vérifier si parent_color_id a été fourni dans le formulaire
+        if (!empty($mappingData['parent_color_id'])) {
+            $parentColor = \App\Models\PrimaryColor::find($mappingData['parent_color_id']);
+        }
+        
+        // 2. Sinon, chercher dans le contexte du CSV (primary_color_name)
+        if (!$parentColor) {
+            $context = $this->analysisResult['manufacturer_color_context'][$sourceValue] ?? null;
+            $primaryColorName = $context['primary_color_name'] ?? null;
+            
+            if ($primaryColorName) {
+                $parentColor = \App\Models\PrimaryColor::where('name', $primaryColorName)
+                    ->whereNull('parent_id')
+                    ->whereNull('manufacturer_id')
+                    ->first();
+            }
+        }
+        
+        if (!$parentColor) {
+            Notification::make()
+                ->title('Erreur')
+                ->body("Couleur principale parente non trouvée. Sélectionnez une couleur principale parente ou assurez-vous que 'primary_color_name' est renseigné dans le CSV.")
+                ->danger()
+                ->send();
+            return null;
+        }
+        
+        // Déterminer le nom de la couleur (priorité au champ du formulaire)
+        $finalColorName = !empty($mappingData['manufacturer_color_name']) 
+            ? $mappingData['manufacturer_color_name'] 
+            : $colorName;
+        
+        // Créer la couleur fabricant
+        return \App\Models\PrimaryColor::create([
+            'name' => $finalColorName,
+            'manufacturer_id' => $manufacturer->id,
+            'parent_id' => $parentColor->id,
+        ]);
     }
 
     protected function getHeaderActions(): array
