@@ -106,6 +106,10 @@ COPY docker/nginx/nginx.conf /etc/nginx/nginx.conf
 # Copy Supervisor configuration
 COPY docker/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
+# Copy init script
+COPY docker/scripts/init.sh /var/www/html/docker/scripts/init.sh
+RUN chmod +x /var/www/html/docker/scripts/init.sh
+
 # Set working directory
 WORKDIR /var/www/html
 
