@@ -7,7 +7,6 @@ use App\Models\Product;
 use App\Models\ProductColorVariant;
 use App\Models\ProductSizeVariant;
 use App\Models\ProductVariantPrice;
-use App\Models\ProductImage;
 use App\Models\Category;
 use App\Models\Manufacturer;
 use App\Models\Distributor;
@@ -15,7 +14,7 @@ use App\Models\PrimaryColor;
 use App\Models\Size;
 use App\Services\CsvImport\ImportHandlerInterface;
 use App\Services\CsvImport\MatchingService;
-use Illuminate\Support\Facades\Storage;
+use App\Jobs\DownloadProductImageJob;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -234,89 +233,42 @@ class ProductImportHandler implements ImportHandlerInterface
         });
     }
 
+    /**
+     * Dispatch les jobs de téléchargement d'images vers la queue
+     * Les images sont téléchargées de manière asynchrone avec retry automatique
+     */
     protected function processImages(CsvImport $import, Product $product, ?ProductColorVariant $colorVariant, array $row, int $rowNumber): void
     {
-        $imageUrls = [];
+        $imageCount = 0;
         
-        // Collecter toutes les URLs d'images (jusqu'à 8)
+        // Dispatch un job pour chaque image (jusqu'à 8)
         for ($i = 1; $i <= 8; $i++) {
             $imageKey = "image_{$i}_url";
             if (!empty($row[$imageKey])) {
-                $imageUrls[] = [
-                    'url' => $row[$imageKey],
-                    'position' => $i,
-                ];
-            }
-        }
-        
-        if (empty($imageUrls)) {
-            return;
-        }
-        
-        // Télécharger et créer les images
-        foreach ($imageUrls as $imageData) {
-            try {
-                $imagePath = $this->downloadImage($imageData['url'], $product->sku);
-                if (!$imagePath) {
-                    $import->addLog('warning', "Impossible de télécharger l'image: {$imageData['url']}", $row, $rowNumber);
+                $imageUrl = trim($row[$imageKey]);
+                
+                // Validation basique de l'URL
+                if (!filter_var($imageUrl, FILTER_VALIDATE_URL)) {
+                    $import->addLog('warning', "URL d'image invalide ignorée: {$imageUrl}", $row, $rowNumber, $product->sku);
                     continue;
                 }
                 
-                // Créer l'entrée ProductImage
-                $productImage = new ProductImage();
-                $productImage->product_id = $product->id;
-                $productImage->s3_url = $imagePath;
-                $productImage->position = $this->getPositionName($imageData['position']);
-                $productImage->is_default = $imageData['position'] === 1;
-                $productImage->status = 'active';
-                $productImage->save();
+                // Dispatch le job vers la queue 'images'
+                DownloadProductImageJob::dispatch(
+                    $product->id,
+                    $colorVariant?->id,
+                    $imageUrl,
+                    $i,
+                    $import->id
+                );
                 
-                // Associer à la variante de couleur si elle existe
-                if ($colorVariant) {
-                    // La relation est gérée via la table pivot product_image_color_variant
-                    $productImage->colorVariants()->syncWithoutDetaching([$colorVariant->id]);
-                }
-                
-            } catch (\Exception $e) {
-                $import->addLog('warning', "Erreur lors du traitement de l'image: " . $e->getMessage(), $row, $rowNumber);
+                $imageCount++;
             }
         }
-    }
-
-    protected function downloadImage(string $url, string $productSku): ?string
-    {
-        try {
-            $contents = file_get_contents($url);
-            if ($contents === false) {
-                return null;
-            }
-            
-            $extension = pathinfo(parse_url($url, PHP_URL_PATH), PATHINFO_EXTENSION) ?: 'jpg';
-            $filename = Str::slug($productSku) . '_' . time() . '_' . Str::random(8) . '.' . $extension;
-            $path = "products/images/{$filename}";
-            
-            Storage::disk('s3')->put($path, $contents);
-            
-            return $path;
-        } catch (\Exception $e) {
-            return null;
-        }
-    }
-
-    protected function getPositionName(int $position): string
-    {
-        $positions = [
-            1 => 'front',
-            2 => 'back',
-            3 => 'left',
-            4 => 'right',
-            5 => 'top',
-            6 => 'bottom',
-            7 => 'detail',
-            8 => 'detail',
-        ];
         
-        return $positions[$position] ?? 'detail';
+        if ($imageCount > 0) {
+            $import->addLog('info', "{$imageCount} image(s) en cours de téléchargement (async)", $row, $rowNumber, $product->sku);
+        }
     }
 
     public function getMatchingValues(array $rows): array
