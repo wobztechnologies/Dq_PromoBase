@@ -8,8 +8,12 @@ Route::get('/', function () {
     return view('welcome');
 });
 
-// Health check endpoint for container monitoring
+// Health check endpoints for container monitoring
 Route::get('/health', function () {
+    return response('OK', 200)->header('Content-Type', 'text/plain');
+});
+
+Route::get('/up', function () {
     return response('OK', 200)->header('Content-Type', 'text/plain');
 });
 

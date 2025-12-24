@@ -8,7 +8,9 @@ watchPatterns = ["**/*"]
 # Use /up.php for faster checks (bypasses Laravel, no DB required)
 # This is faster and more reliable than /health which requires Laravel to be fully initialized
 healthcheckPath = "/up.php"
-healthcheckTimeout = 300
+healthcheckTimeout = 600
+# Increase initial delay to allow for warmup
+sleepApplication = false
 
 # Start command - Supervisor manages all services
 startCommand = "/usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf"
