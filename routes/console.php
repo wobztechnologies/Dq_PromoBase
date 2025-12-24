@@ -18,7 +18,7 @@ Schedule::command('meshy:check-tasks')
     });
 
 // Planifier le traitement ML des images toutes les 5 minutes
-Schedule::command('ml:process-images --limit=50')
+Schedule::command('ml:process-images --limit=100')
     ->everyFiveMinutes()
     ->withoutOverlapping()
     ->runInBackground()
