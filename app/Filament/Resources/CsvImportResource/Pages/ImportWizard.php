@@ -909,10 +909,25 @@ class ImportWizard extends Page implements HasForms
             'categories', 'parent_categories' => \App\Models\Category::pluck('name', 'id')->toArray(),
             'manufacturers' => \App\Models\Manufacturer::pluck('name', 'id')->toArray(),
             'primary_colors' => \App\Models\PrimaryColor::whereNull('parent_id')->whereNull('manufacturer_id')->pluck('name', 'id')->toArray(),
-            'manufacturer_colors' => \App\Models\PrimaryColor::whereNotNull('parent_id')->pluck('name', 'id')->toArray(),
+            'manufacturer_colors' => $this->getManufacturerColorsOptions(),
             'sizes' => \App\Models\Size::pluck('name', 'id')->toArray(),
             default => [],
         };
+    }
+    
+    /**
+     * Obtenir les options des couleurs fabricant avec le nom du fabricant entre parenthèses
+     */
+    protected function getManufacturerColorsOptions(): array
+    {
+        return \App\Models\PrimaryColor::whereNotNull('manufacturer_id')
+            ->with('manufacturer')
+            ->get()
+            ->mapWithKeys(function ($color) {
+                $manufacturerName = $color->manufacturer?->name ?? 'Sans fabricant';
+                return [$color->id => "{$color->name} ({$manufacturerName})"];
+            })
+            ->toArray();
     }
 
     public function executeImport()
