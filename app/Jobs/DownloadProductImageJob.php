@@ -103,9 +103,9 @@ class DownloadProductImageJob implements ShouldQueue
             $productImage->s3_url = $path;
             $productImage->position = $this->getPositionName($this->position);
             $productImage->is_default = $this->position === 1;
-            // Pour les imports CSV, les images sont gérées par l'utilisateur
-            $productImage->management_type = 'user_managed';
-            $productImage->status = 'userDefined';
+            // Pour les imports CSV, les images doivent passer par le traitement ML
+            $productImage->management_type = 'ai_managed';
+            $productImage->status = 'waitML';
             $productImage->save();
 
             // Associer à la variante de couleur si elle existe
