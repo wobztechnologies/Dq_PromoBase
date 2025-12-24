@@ -58,8 +58,20 @@ class CsvRowMapperService
                 continue;
             }
             
+            // Pour les couleurs fabricant, le source_value est au format "manufacturer|color"
+            // On doit comparer avec la combinaison manufacturer_name + color_name
+            $matches = false;
+            if ($type === 'manufacturer_colors' && str_contains($sourceValue, '|')) {
+                [$manufacturerName, $colorName] = explode('|', $sourceValue, 2);
+                $rowManufacturer = $row['manufacturer_name'] ?? '';
+                $rowColorName = $row[$fieldName] ?? '';
+                $matches = ($rowManufacturer === $manufacturerName && $rowColorName === $colorName);
+            } else {
+                $matches = ($row[$fieldName] === $sourceValue);
+            }
+            
             // Si la valeur correspond, appliquer le mapping
-            if ($row[$fieldName] === $sourceValue) {
+            if ($matches) {
                 if ($action === 'map' && isset($mapping['target_id'])) {
                     // Remplacer par la valeur mappée (on garde le nom pour l'instant)
                     // Le handler devra utiliser le matching service pour trouver l'ID réel

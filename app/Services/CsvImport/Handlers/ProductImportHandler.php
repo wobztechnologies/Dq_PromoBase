@@ -91,13 +91,27 @@ class ProductImportHandler implements ImportHandlerInterface
                 $colorVariant = null;
                 $color = null;
                 
+                // Vérifier d'abord si un mapping a été fait dans le wizard (color_name_mapped_id)
+                $colorMappedId = $row['color_name_mapped_id'] ?? null;
+                $primaryColorMappedId = $row['primary_color_name_mapped_id'] ?? null;
+                
+                if ($colorMappedId) {
+                    // Utiliser directement l'ID mappé
+                    $color = PrimaryColor::find($colorMappedId);
+                    if (!$color) {
+                        $import->addLog('error', "Couleur mappée ID '{$colorMappedId}' non trouvée en base", $row, $rowNumber, $sku);
+                        return false;
+                    }
+                }
                 // Si les deux colonnes sont fournies : couleur principale + couleur fabricant
-                if ($primaryColorName && $colorName) {
-                    // Chercher la couleur principale
-                    $primaryColor = PrimaryColor::where('name', $primaryColorName)
-                        ->whereNull('parent_id')
-                        ->whereNull('manufacturer_id')
-                        ->first();
+                elseif ($primaryColorName && $colorName) {
+                    // Chercher la couleur principale (d'abord par mapping, sinon par nom)
+                    $primaryColor = $primaryColorMappedId 
+                        ? PrimaryColor::find($primaryColorMappedId)
+                        : PrimaryColor::where('name', $primaryColorName)
+                            ->whereNull('parent_id')
+                            ->whereNull('manufacturer_id')
+                            ->first();
                     
                     if (!$primaryColor) {
                         $import->addLog('error', "Couleur principale '{$primaryColorName}' non trouvée", $row, $rowNumber, $sku);
@@ -117,10 +131,12 @@ class ProductImportHandler implements ImportHandlerInterface
                 }
                 // Si seulement la couleur principale est fournie : produit simple avec couleur principale
                 elseif ($primaryColorName && !$colorName) {
-                    $color = PrimaryColor::where('name', $primaryColorName)
-                        ->whereNull('parent_id')
-                        ->whereNull('manufacturer_id')
-                        ->first();
+                    $color = $primaryColorMappedId 
+                        ? PrimaryColor::find($primaryColorMappedId)
+                        : PrimaryColor::where('name', $primaryColorName)
+                            ->whereNull('parent_id')
+                            ->whereNull('manufacturer_id')
+                            ->first();
                     
                     if (!$color) {
                         $import->addLog('error', "Couleur principale '{$primaryColorName}' non trouvée", $row, $rowNumber, $sku);
