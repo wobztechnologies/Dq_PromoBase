@@ -40,11 +40,11 @@ class DownloadProductImageJob implements ShouldQueue
      * Create a new job instance.
      */
     public function __construct(
-        public int $productId,
-        public ?int $colorVariantId,
+        public string $productId,
+        public ?string $colorVariantId,
         public string $imageUrl,
         public int $position,
-        public ?int $csvImportId = null
+        public ?string $csvImportId = null
     ) {
         // Utiliser la queue 'images' pour isoler ces jobs
         $this->onQueue('images');
