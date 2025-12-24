@@ -478,12 +478,14 @@ class CsvAnalysisService
 
     /**
      * Trouver un mapping sauvegardé dans CsvImportMapping
+     * Retourne null si le mapping est incomplet (pas de target_name ou target_id)
      */
     protected function findSavedMapping(string $mappingType, string $sourceValue): ?array
     {
         $mapping = CsvImportMapping::findExisting($mappingType, $sourceValue);
         
-        if ($mapping) {
+        // Ignorer les mappings incomplets (sans target_name ou target_id)
+        if ($mapping && $mapping->target_id && $mapping->target_name) {
             return [
                 'target_id' => $mapping->target_id,
                 'target_type' => $mapping->target_type,
