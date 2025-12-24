@@ -116,6 +116,11 @@ class CsvImportService
     {
         $import->start();
         
+        // Réinitialiser le tracker d'images pour les imports de produits
+        if ($import->type === 'product') {
+            Handlers\ProductImportHandler::resetImageUrlTracker();
+        }
+        
         try {
             $filePath = $import->file_path;
             

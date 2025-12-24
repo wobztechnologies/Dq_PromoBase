@@ -20,9 +20,23 @@ use Illuminate\Support\Str;
 
 class ProductImportHandler implements ImportHandlerInterface
 {
+    /**
+     * Stocke les URLs d'images déjà traitées pendant l'import
+     * Clé: "{product_id}_{color_variant_id}_{url_hash}"
+     */
+    protected static array $processedImageUrls = [];
+
     public function __construct(
         protected MatchingService $matchingService
     ) {}
+
+    /**
+     * Réinitialise le tracker d'URLs d'images (à appeler au début d'un nouvel import)
+     */
+    public static function resetImageUrlTracker(): void
+    {
+        self::$processedImageUrls = [];
+    }
 
     public function processRow(CsvImport $import, array $row, int $rowNumber): bool
     {
@@ -267,10 +281,12 @@ class ProductImportHandler implements ImportHandlerInterface
     /**
      * Dispatch les jobs de téléchargement d'images vers la queue
      * Les images sont téléchargées de manière asynchrone avec retry automatique
+     * Évite les doublons pour une même combinaison produit/variante de couleur/URL
      */
     protected function processImages(CsvImport $import, Product $product, ?ProductColorVariant $colorVariant, array $row, int $rowNumber): void
     {
         $imageCount = 0;
+        $skippedCount = 0;
         
         // Dispatch un job pour chaque image (jusqu'à 8)
         for ($i = 1; $i <= 8; $i++) {
@@ -283,6 +299,20 @@ class ProductImportHandler implements ImportHandlerInterface
                     $import->addLog('warning', "URL d'image invalide ignorée: {$imageUrl}", $row, $rowNumber, $product->sku);
                     continue;
                 }
+                
+                // Générer une clé unique pour cette combinaison produit/variante/URL
+                $colorVariantId = $colorVariant?->id ?? 'null';
+                $urlHash = md5($imageUrl);
+                $imageKey = "{$product->id}_{$colorVariantId}_{$urlHash}";
+                
+                // Vérifier si cette image a déjà été traitée pendant cet import
+                if (isset(self::$processedImageUrls[$imageKey])) {
+                    $skippedCount++;
+                    continue;
+                }
+                
+                // Marquer cette URL comme traitée
+                self::$processedImageUrls[$imageKey] = true;
                 
                 // Dispatch le job vers la queue 'images'
                 DownloadProductImageJob::dispatch(
@@ -298,7 +328,13 @@ class ProductImportHandler implements ImportHandlerInterface
         }
         
         if ($imageCount > 0) {
-            $import->addLog('info', "{$imageCount} image(s) en cours de téléchargement (async)", $row, $rowNumber, $product->sku);
+            $message = "{$imageCount} image(s) en cours de téléchargement (async)";
+            if ($skippedCount > 0) {
+                $message .= " - {$skippedCount} doublon(s) ignoré(s)";
+            }
+            $import->addLog('info', $message, $row, $rowNumber, $product->sku);
+        } elseif ($skippedCount > 0) {
+            $import->addLog('info', "{$skippedCount} image(s) déjà importée(s) pour cette variante, ignorée(s)", $row, $rowNumber, $product->sku);
         }
     }
 
