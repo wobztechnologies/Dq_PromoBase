@@ -28,7 +28,7 @@ COPY . .
 RUN composer dump-autoload --optimize --no-dev
 
 # -----------------------------------------------------------------------------
-# Stage 2: Node.js build for frontend assets
+# Stage 2: Node.js build for frontend assets + runtime scripts
 # -----------------------------------------------------------------------------
 FROM node:20-alpine AS node-builder
 
@@ -37,8 +37,9 @@ WORKDIR /app
 # Copy package files
 COPY package.json package-lock.json ./
 
-# Install dependencies
-RUN npm ci --ignore-scripts
+# Install ALL dependencies (including optional for xatlas-three)
+# Use --ignore-scripts to avoid build issues
+RUN npm ci || npm install
 
 # Copy source files needed for build
 COPY resources ./resources
@@ -48,12 +49,15 @@ COPY --from=composer-builder /app/vendor ./vendor
 # Build frontend assets
 RUN npm run build
 
+# Copy runtime scripts
+COPY scripts ./scripts
+
 # -----------------------------------------------------------------------------
 # Stage 3: Production image
 # -----------------------------------------------------------------------------
 FROM php:8.3-fpm-alpine
 
-# Install system dependencies
+# Install system dependencies + Node.js for runtime scripts (UV processing, Draco compression)
 RUN apk add --no-cache \
     nginx \
     supervisor \
@@ -68,6 +72,8 @@ RUN apk add --no-cache \
     postgresql-dev \
     icu-dev \
     linux-headers \
+    nodejs \
+    npm \
     $PHPIZE_DEPS
 
 # Configure and install PHP extensions
@@ -116,6 +122,10 @@ WORKDIR /var/www/html
 # Copy application from builder stages
 COPY --from=composer-builder /app .
 COPY --from=node-builder /app/public/build ./public/build
+
+# Copy Node.js dependencies and scripts for runtime (UV processing, Draco compression)
+COPY --from=node-builder /app/node_modules ./node_modules
+COPY --from=node-builder /app/scripts ./scripts
 
 # Create required directories
 RUN mkdir -p storage/logs \
