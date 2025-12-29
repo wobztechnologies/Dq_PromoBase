@@ -23,6 +23,10 @@
         "@gltf-transform/core": "^3.7.7",
         "@gltf-transform/extensions": "^3.7.7",
         "@gltf-transform/functions": "^3.7.7",
-        "draco3dgltf": "^1.5.7"
+        "draco3dgltf": "^1.5.7",
+        "three": "^0.169.0"
+    },
+    "optionalDependencies": {
+        "xatlas-three": "^0.1.0"
     }
 }

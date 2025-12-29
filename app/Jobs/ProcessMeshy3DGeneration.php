@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\ProductModel3D;
 use App\Services\MeshyService;
+use App\Services\UVProcessingService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -190,7 +191,46 @@ class ProcessMeshy3DGeneration implements ShouldQueue
                 // Sauvegarder le fichier téléchargé temporairement
                 file_put_contents($tempInputFile, $response->body());
                 
-                Log::info('ProcessMeshy3DGeneration - Fichier téléchargé, compression Draco en cours', [
+                Log::info('ProcessMeshy3DGeneration - Fichier téléchargé', [
+                    'task_id' => $this->taskId,
+                    'input_file' => $tempInputFile,
+                ]);
+
+                // Traiter les UV maps avant compression
+                $tempUVProcessedFile = $tempDir . '/model-uv-processed.glb';
+                $uvService = new UVProcessingService();
+                
+                if ($uvService->isAvailable()) {
+                    Log::info('ProcessMeshy3DGeneration - Traitement des UV maps en cours', [
+                        'task_id' => $this->taskId,
+                    ]);
+                    
+                    $uvResult = $uvService->process($tempInputFile, $tempUVProcessedFile);
+                    
+                    if ($uvResult['success']) {
+                        Log::info('ProcessMeshy3DGeneration - Traitement UV terminé', [
+                            'task_id' => $this->taskId,
+                            'processed' => $uvResult['processed'] ?? false,
+                            'analysis' => $uvResult['analysis'] ?? null,
+                        ]);
+                        
+                        // Utiliser le fichier traité si le traitement a été effectué
+                        if (($uvResult['processed'] ?? false) && file_exists($tempUVProcessedFile)) {
+                            $tempInputFile = $tempUVProcessedFile;
+                        }
+                    } else {
+                        Log::warning('ProcessMeshy3DGeneration - Échec du traitement UV, utilisation du fichier original', [
+                            'task_id' => $this->taskId,
+                            'error' => $uvResult['error'] ?? 'Erreur inconnue',
+                        ]);
+                    }
+                } else {
+                    Log::info('ProcessMeshy3DGeneration - Service UV non disponible, skip du traitement UV', [
+                        'task_id' => $this->taskId,
+                    ]);
+                }
+                
+                Log::info('ProcessMeshy3DGeneration - Compression Draco en cours', [
                     'task_id' => $this->taskId,
                     'input_file' => $tempInputFile,
                     'output_file' => $tempOutputFile,

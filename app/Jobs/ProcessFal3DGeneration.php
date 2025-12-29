@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\ProductModel3D;
 use App\Services\FalService;
+use App\Services\UVProcessingService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -188,7 +189,46 @@ class ProcessFal3DGeneration implements ShouldQueue
             // Sauvegarder le fichier téléchargé temporairement
             file_put_contents($tempInputFile, $response->body());
             
-            Log::info('ProcessFal3DGeneration - Fichier téléchargé, compression Draco en cours', [
+            Log::info('ProcessFal3DGeneration - Fichier téléchargé', [
+                'model_id' => $this->model3DId,
+                'input_file' => $tempInputFile,
+            ]);
+
+            // Traiter les UV maps avant compression
+            $tempUVProcessedFile = $tempDir . '/model-uv-processed.glb';
+            $uvService = new UVProcessingService();
+            
+            if ($uvService->isAvailable()) {
+                Log::info('ProcessFal3DGeneration - Traitement des UV maps en cours', [
+                    'model_id' => $this->model3DId,
+                ]);
+                
+                $uvResult = $uvService->process($tempInputFile, $tempUVProcessedFile);
+                
+                if ($uvResult['success']) {
+                    Log::info('ProcessFal3DGeneration - Traitement UV terminé', [
+                        'model_id' => $this->model3DId,
+                        'processed' => $uvResult['processed'] ?? false,
+                        'analysis' => $uvResult['analysis'] ?? null,
+                    ]);
+                    
+                    // Utiliser le fichier traité si le traitement a été effectué
+                    if (($uvResult['processed'] ?? false) && file_exists($tempUVProcessedFile)) {
+                        $tempInputFile = $tempUVProcessedFile;
+                    }
+                } else {
+                    Log::warning('ProcessFal3DGeneration - Échec du traitement UV, utilisation du fichier original', [
+                        'model_id' => $this->model3DId,
+                        'error' => $uvResult['error'] ?? 'Erreur inconnue',
+                    ]);
+                }
+            } else {
+                Log::info('ProcessFal3DGeneration - Service UV non disponible, skip du traitement UV', [
+                    'model_id' => $this->model3DId,
+                ]);
+            }
+            
+            Log::info('ProcessFal3DGeneration - Compression Draco en cours', [
                 'model_id' => $this->model3DId,
                 'input_file' => $tempInputFile,
                 'output_file' => $tempOutputFile,

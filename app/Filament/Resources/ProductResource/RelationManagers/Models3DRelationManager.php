@@ -4,6 +4,7 @@ namespace App\Filament\Resources\ProductResource\RelationManagers;
 
 use App\Jobs\ProcessMeshy3DGeneration;
 use App\Jobs\ProcessFal3DGeneration;
+use App\Jobs\ProcessUploadedModel3D;
 use App\Services\MeshyService;
 use App\Services\FalService;
 use Filament\Forms;
@@ -235,7 +236,20 @@ class Models3DRelationManager extends RelationManager
                     ->falseLabel('Non par défaut'),
             ])
             ->headerActions([
-                Tables\Actions\CreateAction::make(),
+                Tables\Actions\CreateAction::make()
+                    ->after(function ($record) {
+                        // Dispatcher le traitement UV et compression pour les uploads manuels
+                        if ($record && $record->s3_url && $record->origin === \App\Models\ProductModel3D::ORIGIN_UPLOADED) {
+                            ProcessUploadedModel3D::dispatch($record->id)
+                                ->delay(now()->addSeconds(5)); // Petit délai pour s'assurer que le fichier est bien uploadé
+                            
+                            \Filament\Notifications\Notification::make()
+                                ->title('Traitement en cours')
+                                ->body('Le modèle 3D sera optimisé en arrière-plan (UV maps + compression Draco).')
+                                ->info()
+                                ->send();
+                        }
+                    }),
                 Tables\Actions\Action::make('3d_by_decq_ai')
                     ->label('3DbyDecqAi')
                     ->icon('heroicon-o-sparkles')
