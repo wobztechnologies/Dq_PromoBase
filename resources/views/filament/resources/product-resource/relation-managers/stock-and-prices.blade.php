@@ -1,16 +1,11 @@
-<x-filament-relation-managers::relationship
-    :active-manager="$activeManager"
-    :managers="$managers"
-    :owner-record="$ownerRecord"
-    :page-class="$pageClass"
->
-    @php
-        $data = $this->getViewData();
-        $product = $data['product'];
-        $distributors = $data['distributors'];
-        $variants = $data['variants'];
-    @endphp
+@php
+    $data = $this->getViewData();
+    $product = $data['product'];
+    $distributors = $data['distributors'];
+    $variants = $data['variants'];
+@endphp
 
+<div class="fi-ta">
     <div class="space-y-4">
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
             <h3 class="text-lg font-semibold mb-2">Stock & Prix - {{ $product->sku }} - {{ $product->name }}</h3>
@@ -111,4 +106,4 @@
             </div>
         @endif
     </div>
-</x-filament-relation-managers::relationship>
+</div>
