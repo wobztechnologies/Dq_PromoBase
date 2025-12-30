@@ -106,9 +106,28 @@ class ProductImportHandler implements ImportHandlerInterface
                 $colorVariant = null;
                 $color = null;
                 
-                // Vérifier d'abord si un mapping a été fait dans le wizard (color_name_mapped_id)
+                // Vérifier d'abord si un mapping a été fait dans le wizard
                 $colorMappedId = $row['color_name_mapped_id'] ?? null;
                 $primaryColorMappedId = $row['primary_color_name_mapped_id'] ?? null;
+                
+                // Si primary_color_name a un mapping direct, l'utiliser pour un produit simple
+                if ($primaryColorMappedId && !$colorName) {
+                    $color = PrimaryColor::find($primaryColorMappedId);
+                    if ($color) {
+                        if ($import->strategy === 'create_update') {
+                            if ($product->colorVariants()->count() > 0) {
+                                $import->addLog('warning', "Le produit a des variantes de couleur existantes, la couleur principale ne peut pas être définie.", $row, $rowNumber, $sku);
+                            } else {
+                                $product->primary_color_id = $color->id;
+                                $product->saveQuietly();
+                                $import->addLog('info', "Couleur principale '{$color->name}' associée au produit (via primary_color_name mapping)", $row, $rowNumber, $sku);
+                            }
+                        }
+                    } else {
+                        $import->addLog('error', "Couleur principale mappée ID '{$primaryColorMappedId}' non trouvée en base", $row, $rowNumber, $sku);
+                        return false;
+                    }
+                }
                 
                 if ($colorMappedId) {
                     // Utiliser directement l'ID mappé
@@ -116,6 +135,19 @@ class ProductImportHandler implements ImportHandlerInterface
                     if (!$color) {
                         $import->addLog('error', "Couleur mappée ID '{$colorMappedId}' non trouvée en base", $row, $rowNumber, $sku);
                         return false;
+                    }
+                    
+                    // Si c'est une couleur principale (pas de parent ni de fabricant), l'associer directement au produit
+                    if (!$color->parent_id && !$color->manufacturer_id) {
+                        if ($import->strategy === 'create_update') {
+                            if ($product->colorVariants()->count() > 0) {
+                                $import->addLog('warning', "Le produit a des variantes de couleur existantes, la couleur principale ne peut pas être définie via mapping.", $row, $rowNumber, $sku);
+                            } else {
+                                $product->primary_color_id = $color->id;
+                                $product->saveQuietly();
+                                $import->addLog('info', "Couleur principale '{$color->name}' associée au produit (via color_name mapping)", $row, $rowNumber, $sku);
+                            }
+                        }
                     }
                 }
                 
@@ -160,9 +192,16 @@ class ProductImportHandler implements ImportHandlerInterface
                     }
                     
                     // Pour un produit simple, définir la couleur directement sur le produit
+                    // Utiliser saveQuietly pour éviter les hooks qui pourraient supprimer primary_color_id
                     if ($import->strategy === 'create_update') {
-                        $product->primary_color_id = $color->id;
-                        $product->save();
+                        // Vérifier si le produit a des variantes de couleur existantes
+                        if ($product->colorVariants()->count() > 0) {
+                            $import->addLog('warning', "Le produit a des variantes de couleur existantes, la couleur principale ne peut pas être définie. Supprimez d'abord les variantes.", $row, $rowNumber, $sku);
+                        } else {
+                            $product->primary_color_id = $color->id;
+                            $product->saveQuietly(); // Éviter le hook saved qui pourrait interférer
+                            $import->addLog('info', "Couleur principale '{$color->name}' associée au produit simple", $row, $rowNumber, $sku);
+                        }
                     }
                 }
                 // Si seulement color_name est fourni (compatibilité avec anciens imports)
@@ -204,8 +243,14 @@ class ProductImportHandler implements ImportHandlerInterface
                     // Si c'est une couleur principale, l'associer directement au produit
                     if (!$color->parent_id && !$color->manufacturer_id) {
                         if ($import->strategy === 'create_update') {
-                            $product->primary_color_id = $color->id;
-                            $product->save();
+                            // Vérifier si le produit a des variantes de couleur existantes
+                            if ($product->colorVariants()->count() > 0) {
+                                $import->addLog('warning', "Le produit a des variantes de couleur existantes, la couleur principale ne peut pas être définie. Supprimez d'abord les variantes.", $row, $rowNumber, $sku);
+                            } else {
+                                $product->primary_color_id = $color->id;
+                                $product->saveQuietly(); // Éviter le hook saved qui pourrait interférer
+                                $import->addLog('info', "Couleur principale '{$color->name}' associée au produit simple (via color_name)", $row, $rowNumber, $sku);
+                            }
                         }
                     }
                 }

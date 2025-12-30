@@ -168,6 +168,13 @@ class ProductResource extends Resource
                     })
                     ->searchable()
                     ->live()
+                    ->afterStateHydrated(function ($component, $record) {
+                        // S'assurer que la valeur est correctement hydratée lors de l'édition
+                        if ($record && $record->primary_color_id) {
+                            $component->state($record->primary_color_id);
+                        }
+                    })
+                    ->dehydratedWhenHidden() // Préserver la valeur même si le champ est caché
                     ->visible(function ($get, $record) {
                         $parentId = $get('primary_color_parent_id');
                         

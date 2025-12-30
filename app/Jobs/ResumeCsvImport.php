@@ -33,7 +33,8 @@ class ResumeCsvImport implements ShouldQueue
         public CsvImport $import,
         public int $startFromRow
     ) {
-        $this->onQueue('imports');
+        // Utiliser la queue default qui est traitée par les workers existants
+        $this->onQueue('default');
     }
 
     public function handle(

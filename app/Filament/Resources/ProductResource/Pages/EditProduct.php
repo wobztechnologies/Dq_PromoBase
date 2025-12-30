@@ -27,13 +27,27 @@ class EditProduct extends EditRecord
 
     protected function mutateFormDataBeforeSave(array $data): array
     {
-        // S'assurer que primary_color_id est bien dans les données à sauvegarder
-        // Le champ primary_color_parent_id est dehydrated(false) donc il n'est pas inclus
+        // Debug: voir les données avant sauvegarde
         \Illuminate\Support\Facades\Log::info('EditProduct mutateFormDataBeforeSave', [
             'data' => $data,
             'record_id' => $this->record->id,
+            'current_primary_color_id' => $this->record->primary_color_id,
+            'has_color_variants' => $this->record->colorVariants()->count(),
         ]);
         
+        // Supprimer le champ temporaire s'il existe
+        unset($data['primary_color_parent_id']);
+        
         return $data;
+    }
+    
+    protected function afterSave(): void
+    {
+        // Debug: vérifier après la sauvegarde
+        $this->record->refresh();
+        \Illuminate\Support\Facades\Log::info('EditProduct afterSave', [
+            'record_id' => $this->record->id,
+            'primary_color_id_after' => $this->record->primary_color_id,
+        ]);
     }
 }
