@@ -388,9 +388,64 @@ class UVPersonalizationProcessor {
     }
 
     /**
+     * Ajouter les métadonnées "extras" pour identifier les UV de personnalisation
+     * Ces métadonnées permettent à Fabric.js/Three.js de récupérer facilement l'UV
+     */
+    addCustomizationExtras(projection) {
+        console.log('\n📋 Ajout des métadonnées customizationUV...');
+        
+        const root = this.document.getRoot();
+        
+        // Ajouter les extras au niveau de la scène (root)
+        const existingExtras = root.getExtras() || {};
+        root.setExtras({
+            ...existingExtras,
+            uvChannels: {
+                TEXCOORD_0: 'originalTexture',
+                TEXCOORD_1: 'customizationUV',
+            },
+            customizationUV: {
+                channel: 1,
+                attribute: 'TEXCOORD_1',
+                threeJsAttribute: 'uv2',
+                projection: projection,
+                description: 'UV layer for Fabric.js personalization',
+            },
+            generator: 'DQ_PromoBase UV Processor',
+            generatedAt: new Date().toISOString(),
+        });
+        
+        // Ajouter les extras à chaque mesh qui a reçu l'UV de personnalisation
+        for (const mesh of this.meshes) {
+            const primitives = mesh.listPrimitives();
+            
+            for (const primitive of primitives) {
+                const uv1 = primitive.getAttribute('TEXCOORD_1');
+                
+                if (uv1) {
+                    const meshExtras = mesh.getExtras() || {};
+                    mesh.setExtras({
+                        ...meshExtras,
+                        hasCustomizationUV: true,
+                        customizationUVChannel: 1,
+                    });
+                }
+            }
+        }
+        
+        console.log('   ✅ Métadonnées ajoutées');
+        console.log('   - root.extras.customizationUV.channel = 1');
+        console.log('   - root.extras.customizationUV.attribute = "TEXCOORD_1"');
+        console.log('   - root.extras.customizationUV.threeJsAttribute = "uv2"');
+    }
+
+    /**
      * Sauvegarder le document modifié
      */
-    async save(outputPath) {
+    async save(outputPath, projection) {
+        // Ajouter les métadonnées avant sauvegarde
+        this.addCustomizationExtras(projection);
+        
         console.log(`\n💾 Sauvegarde vers: ${outputPath}`);
         await this.io.write(outputPath, this.document);
         
@@ -443,9 +498,9 @@ async function main() {
         // Créer les UV de personnalisation
         const result = await processor.createPersonalizationUVs(projectionType);
         
-        // Sauvegarder
+        // Sauvegarder (avec métadonnées customizationUV)
         const finalOutputPath = outputPath || inputPath.replace('.glb', '-personalization.glb');
-        await processor.save(finalOutputPath);
+        await processor.save(finalOutputPath, projectionType);
         
         console.log('\n✅ Traitement terminé avec succès!');
         console.log('   UV originales (TEXCOORD_0): ✅ Préservées');
