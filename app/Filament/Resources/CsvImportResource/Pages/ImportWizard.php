@@ -1145,12 +1145,16 @@ class ImportWizard extends Page implements HasForms
                 $mode = $this->data['mode'] ?? 'full';
             }
             
+            // Copier le fichier vers un emplacement permanent
+            // Le dossier livewire-tmp est temporaire et nettoyé automatiquement
+            $permanentFilePath = $this->copyFileToPermanentStorage();
+            
             $import = CsvImport::create([
                 'name' => $this->data['name'],
                 'type' => $this->data['type'],
                 'mode' => $mode,
                 'strategy' => $this->data['strategy'] ?? 'create_update',
-                'file_path' => $this->uploadedFilePath,
+                'file_path' => $permanentFilePath,
                 'column_mapping' => $this->columnMapping,
                 'value_mappings' => $this->data['value_mappings'] ?? [],
                 'status' => 'matching_completed',
@@ -1176,6 +1180,46 @@ class ImportWizard extends Page implements HasForms
                 ->send();
             return null;
         }
+    }
+    
+    /**
+     * Copier le fichier CSV vers un emplacement permanent
+     * pour éviter la perte lors du nettoyage de livewire-tmp
+     */
+    protected function copyFileToPermanentStorage(): string
+    {
+        if (!$this->uploadedFilePath || !file_exists($this->uploadedFilePath)) {
+            throw new \Exception('Le fichier CSV source n\'existe pas.');
+        }
+        
+        // Générer un nom de fichier unique avec timestamp et nom original
+        $originalName = pathinfo($this->uploadedFilePath, PATHINFO_FILENAME);
+        $extension = pathinfo($this->uploadedFilePath, PATHINFO_EXTENSION) ?: 'csv';
+        $timestamp = now()->format('Y-m-d_His');
+        $uniqueId = substr(md5(uniqid()), 0, 8);
+        $newFileName = "{$timestamp}_{$uniqueId}_{$originalName}.{$extension}";
+        
+        // Chemin permanent dans storage/app/csv-imports-permanent/
+        $permanentDir = storage_path('app/csv-imports-permanent');
+        
+        // Créer le dossier s'il n'existe pas
+        if (!is_dir($permanentDir)) {
+            mkdir($permanentDir, 0755, true);
+        }
+        
+        $permanentPath = $permanentDir . '/' . $newFileName;
+        
+        // Copier le fichier
+        if (!copy($this->uploadedFilePath, $permanentPath)) {
+            throw new \Exception('Impossible de copier le fichier CSV vers l\'emplacement permanent.');
+        }
+        
+        // Vérifier que la copie est valide
+        if (!file_exists($permanentPath) || filesize($permanentPath) === 0) {
+            throw new \Exception('La copie du fichier CSV a échoué.');
+        }
+        
+        return $permanentPath;
     }
 
     protected function processValueMappings(): void
