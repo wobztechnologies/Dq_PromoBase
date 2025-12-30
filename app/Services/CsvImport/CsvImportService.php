@@ -114,6 +114,14 @@ class CsvImportService
      */
     public function process(CsvImport $import): void
     {
+        // Désactiver le timeout pour les gros imports
+        set_time_limit(0);
+        
+        // Augmenter la mémoire si nécessaire
+        if ((int) ini_get('memory_limit') < 1024) {
+            ini_set('memory_limit', '1024M');
+        }
+        
         $import->start();
         
         // Réinitialiser le tracker d'images pour les imports de produits
@@ -144,6 +152,10 @@ class CsvImportService
             // Appliquer les mappings de colonnes et valeurs si disponibles
             $rowMapper = app(\App\Services\CsvImport\CsvRowMapperService::class);
             
+            $totalRecords = count($records);
+            $batchSize = 100; // Log progression toutes les 100 lignes
+            $startTime = microtime(true);
+            
             foreach ($records as $rowIndex => $row) {
                 $rowNumber = $rowIndex + 2; // +2 car ligne 1 = headers
                 
@@ -162,6 +174,27 @@ class CsvImportService
                 }
                 
                 $import->incrementProcessed();
+                
+                // Log de progression toutes les N lignes
+                if (($rowIndex + 1) % $batchSize === 0) {
+                    $elapsed = microtime(true) - $startTime;
+                    $avgPerRow = $elapsed / ($rowIndex + 1);
+                    $remaining = ($totalRecords - $rowIndex - 1) * $avgPerRow;
+                    
+                    \Illuminate\Support\Facades\Log::info("Import progression", [
+                        'import_id' => $import->id,
+                        'processed' => $rowIndex + 1,
+                        'total' => $totalRecords,
+                        'percent' => round(($rowIndex + 1) / $totalRecords * 100, 1) . '%',
+                        'elapsed' => round($elapsed, 1) . 's',
+                        'remaining' => round($remaining, 1) . 's',
+                        'successful' => $import->successful_rows,
+                        'failed' => $import->failed_rows,
+                    ]);
+                    
+                    // Libérer la mémoire
+                    gc_collect_cycles();
+                }
             }
             
             // Archiver le fichier et générer le rapport
