@@ -1,17 +1,18 @@
 #!/usr/bin/env node
 
 /**
- * Script pour traiter et corriger les UV maps d'un modèle 3D GLB
+ * Script pour créer des UV maps de personnalisation pour modèles 3D GLB
  * 
- * Utilise xatlas-three pour générer des UV maps propres et cohérentes.
- * Fallback sur une projection simple si la fragmentation persiste.
+ * IMPORTANT: Ce script NE MODIFIE PAS les UV originales (TEXCOORD_0)
+ * Il crée un layer UV séparé (TEXCOORD_1) pour la personnalisation Fabric.js
  * 
- * Usage: node scripts/process-uv-maps.js <input-file> <output-file> [--analyze-only]
+ * Usage: node scripts/process-uv-maps.js <input-file> <output-file> [options]
  * 
  * Options:
- *   --analyze-only: Analyser les UV sans modifier le fichier
- *   --force-unwrap: Forcer le re-unwrap même si les UV semblent corrects
- *   --resolution=N: Résolution de l'atlas UV (défaut: 1024)
+ *   --analyze-only        : Analyser les UV sans modifier le fichier
+ *   --personalization-only: Créer uniquement UV2 pour personnalisation (défaut)
+ *   --projection=TYPE     : Type de projection (cylindrical, planar, box, spherical)
+ *   --preserve-uv2        : Ne pas écraser UV2 si déjà présent
  */
 
 import { existsSync, readFileSync, writeFileSync, statSync } from 'fs';
@@ -24,50 +25,41 @@ const args = process.argv.slice(2);
 const inputPath = args.find(arg => !arg.startsWith('--'));
 const outputPath = args.find((arg, i) => !arg.startsWith('--') && i > args.indexOf(inputPath));
 const analyzeOnly = args.includes('--analyze-only');
-const forceUnwrap = args.includes('--force-unwrap');
-const resolutionArg = args.find(arg => arg.startsWith('--resolution='));
-const resolution = resolutionArg ? parseInt(resolutionArg.split('=')[1]) : 1024;
+const preserveUV2 = args.includes('--preserve-uv2');
+const projectionArg = args.find(arg => arg.startsWith('--projection='));
+const projectionType = projectionArg ? projectionArg.split('=')[1] : 'cylindrical';
 
 if (!inputPath) {
     console.error('Usage: node scripts/process-uv-maps.js <input-file> [output-file] [options]');
+    console.error('');
     console.error('Options:');
-    console.error('  --analyze-only: Analyser les UV sans modifier le fichier');
-    console.error('  --force-unwrap: Forcer le re-unwrap même si les UV semblent corrects');
-    console.error('  --resolution=N: Résolution de l\'atlas UV (défaut: 1024)');
+    console.error('  --analyze-only         Analyser les UV sans modifier le fichier');
+    console.error('  --projection=TYPE      Type de projection pour UV personnalisation');
+    console.error('                         Types: cylindrical (défaut), planar, box, spherical');
+    console.error('  --preserve-uv2         Ne pas écraser UV2 si déjà présent');
+    console.error('');
+    console.error('Exemples:');
+    console.error('  node scripts/process-uv-maps.js model.glb output.glb');
+    console.error('  node scripts/process-uv-maps.js model.glb output.glb --projection=planar');
+    console.error('  node scripts/process-uv-maps.js model.glb --analyze-only');
     process.exit(1);
 }
 
-// Configuration xatlas (paramètres optimisés pour minimiser la fragmentation)
-const XATLAS_OPTIONS = {
-    maxIterations: 4,
-    normalDeviationWeight: 2.0,
-    straightnessWeight: 6.0,
-    useInputMeshUvs: false,  // Ignorer les UV existantes pour repartir de zéro
-    resolution: resolution,
-    padding: 2,
-    rotateCharts: true,
-    bruteForce: false,  // Plus rapide
-    texelsPerUnit: 0,   // Auto
-};
-
-// Seuil pour détecter une fragmentation excessive (nombre d'îles UV)
-const MAX_UV_ISLANDS_THRESHOLD = 10;
-
 /**
- * Classe pour analyser et corriger les UV maps
+ * Classe pour créer des UV de personnalisation
  */
-class UVMapProcessor {
+class UVPersonalizationProcessor {
     constructor() {
         this.io = null;
         this.document = null;
         this.meshes = [];
-        this.uvAnalysis = {
+        this.analysis = {
             totalMeshes: 0,
-            meshesWithUV: 0,
-            meshesWithoutUV: 0,
-            estimatedIslands: 0,
-            fragmentationScore: 0,
-            needsProcessing: false,
+            meshesWithUV0: 0,
+            meshesWithUV1: 0,
+            meshesWithTextures: 0,
+            hasTextures: false,
+            boundingBox: null,
         };
     }
 
@@ -102,223 +94,47 @@ class UVMapProcessor {
     }
 
     /**
-     * Analyser les UV maps de tous les meshes
+     * Analyser le modèle
      */
-    analyzeUVMaps() {
-        console.log('\n🔍 Analyse des UV maps...');
+    analyze() {
+        console.log('\n🔍 Analyse du modèle...');
         
-        this.uvAnalysis.totalMeshes = this.meshes.length;
-        let totalVertices = 0;
-        let totalUVDiscontinuities = 0;
+        this.analysis.totalMeshes = this.meshes.length;
+        
+        // Calculer la bounding box globale
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+        let minZ = Infinity, maxZ = -Infinity;
 
         for (const mesh of this.meshes) {
             const primitives = mesh.listPrimitives();
             
             for (const primitive of primitives) {
                 const positionAttr = primitive.getAttribute('POSITION');
-                const uvAttr = primitive.getAttribute('TEXCOORD_0');
-                const indices = primitive.getIndices();
+                const uv0Attr = primitive.getAttribute('TEXCOORD_0');
+                const uv1Attr = primitive.getAttribute('TEXCOORD_1');
+                const material = primitive.getMaterial();
 
                 if (!positionAttr) continue;
 
-                const vertexCount = positionAttr.getCount();
-                totalVertices += vertexCount;
+                // Compter les UV
+                if (uv0Attr) this.analysis.meshesWithUV0++;
+                if (uv1Attr) this.analysis.meshesWithUV1++;
 
-                if (uvAttr) {
-                    this.uvAnalysis.meshesWithUV++;
+                // Vérifier les textures
+                if (material) {
+                    const baseColor = material.getBaseColorTexture();
+                    const normal = material.getNormalTexture();
+                    const metalRough = material.getMetallicRoughnessTexture();
                     
-                    // Estimer la fragmentation en comptant les discontinuités UV
-                    const uvArray = uvAttr.getArray();
-                    const discontinuities = this.countUVDiscontinuities(uvArray, indices?.getArray(), vertexCount);
-                    totalUVDiscontinuities += discontinuities;
-                    
-                    console.log(`   Mesh: ${mesh.getName() || 'sans nom'}`);
-                    console.log(`      Vertices: ${vertexCount}, UV discontinuités: ${discontinuities}`);
-                } else {
-                    this.uvAnalysis.meshesWithoutUV++;
-                    console.log(`   Mesh: ${mesh.getName() || 'sans nom'} - ⚠️ Pas de UV`);
-                }
-            }
-        }
-
-        // Estimer le nombre d'îles UV basé sur les discontinuités
-        // Une discontinuité = potentiellement une nouvelle île
-        this.uvAnalysis.estimatedIslands = Math.max(1, Math.floor(totalUVDiscontinuities / 100) + 1);
-        
-        // Score de fragmentation (0-100, plus c'est haut, plus c'est fragmenté)
-        this.uvAnalysis.fragmentationScore = Math.min(100, 
-            (totalUVDiscontinuities / Math.max(1, totalVertices)) * 1000
-        );
-
-        // Déterminer si le traitement est nécessaire
-        this.uvAnalysis.needsProcessing = 
-            forceUnwrap ||
-            this.uvAnalysis.meshesWithoutUV > 0 ||
-            this.uvAnalysis.estimatedIslands > MAX_UV_ISLANDS_THRESHOLD ||
-            this.uvAnalysis.fragmentationScore > 30;
-
-        console.log('\n📊 Résultat de l\'analyse:');
-        console.log(`   Total meshes: ${this.uvAnalysis.totalMeshes}`);
-        console.log(`   Meshes avec UV: ${this.uvAnalysis.meshesWithUV}`);
-        console.log(`   Meshes sans UV: ${this.uvAnalysis.meshesWithoutUV}`);
-        console.log(`   Îles UV estimées: ${this.uvAnalysis.estimatedIslands}`);
-        console.log(`   Score de fragmentation: ${this.uvAnalysis.fragmentationScore.toFixed(1)}%`);
-        console.log(`   Traitement nécessaire: ${this.uvAnalysis.needsProcessing ? '✅ OUI' : '❌ NON'}`);
-
-        return this.uvAnalysis;
-    }
-
-    /**
-     * Compter les discontinuités UV (heuristique simple)
-     */
-    countUVDiscontinuities(uvArray, indices, vertexCount) {
-        if (!uvArray || uvArray.length < 2) return 0;
-        
-        let discontinuities = 0;
-        const uvSet = new Set();
-        
-        // Parcourir les UV et compter les valeurs uniques
-        for (let i = 0; i < uvArray.length; i += 2) {
-            const u = Math.round(uvArray[i] * 1000) / 1000;
-            const v = Math.round(uvArray[i + 1] * 1000) / 1000;
-            const key = `${u},${v}`;
-            
-            if (!uvSet.has(key)) {
-                uvSet.add(key);
-            }
-        }
-        
-        // Les discontinuités sont approximées par le ratio UV uniques / vertices
-        // Plus ce ratio est élevé, plus il y a de coutures
-        const uniqueUVs = uvSet.size;
-        discontinuities = Math.max(0, uniqueUVs - vertexCount * 0.8);
-        
-        return discontinuities;
-    }
-
-    /**
-     * Appliquer le traitement UV avec xatlas (via Three.js si disponible)
-     * Fallback sur une projection simple si xatlas n'est pas disponible
-     */
-    async processUVMaps() {
-        console.log('\n⚙️ Traitement des UV maps...');
-        
-        // Essayer d'utiliser xatlas-three via un processus dynamique
-        // Note: xatlas-three nécessite un contexte WebGL, donc on utilise un fallback
-        
-        let processed = false;
-        
-        try {
-            // Tentative avec xatlas-three (nécessite three.js et WebGL)
-            processed = await this.tryXatlasUnwrap();
-        } catch (error) {
-            console.log(`   ⚠️ xatlas non disponible: ${error.message}`);
-            console.log('   📐 Utilisation du fallback avec projection simple...');
-        }
-        
-        if (!processed) {
-            // Fallback: Projection simple (box/cylindrical)
-            await this.applySimpleProjection();
-        }
-
-        return true;
-    }
-
-    /**
-     * Tenter un unwrap avec xatlas-three
-     * Note: Nécessite que xatlas-three soit installé et configuré
-     */
-    async tryXatlasUnwrap() {
-        // Vérifier si xatlas-three est disponible
-        let UVUnwrapper;
-        try {
-            const xatlasModule = await import('xatlas-three');
-            UVUnwrapper = xatlasModule.UVUnwrapper;
-        } catch (e) {
-            throw new Error('xatlas-three non installé');
-        }
-
-        console.log('   🔄 Unwrap avec xatlas-three...');
-        
-        // Pour chaque mesh, appliquer xatlas
-        for (const mesh of this.meshes) {
-            const primitives = mesh.listPrimitives();
-            
-            for (const primitive of primitives) {
-                const positionAttr = primitive.getAttribute('POSITION');
-                const normalAttr = primitive.getAttribute('NORMAL');
-                const indices = primitive.getIndices();
-                
-                if (!positionAttr) continue;
-
-                // Préparer les données pour xatlas
-                const positions = positionAttr.getArray();
-                const normals = normalAttr?.getArray();
-                const indexArray = indices?.getArray();
-
-                // Créer l'unwrapper xatlas
-                const unwrapper = new UVUnwrapper(XATLAS_OPTIONS);
-                await unwrapper.loadLibrary();
-
-                // Créer une geometry compatible (format Three.js)
-                const geometry = {
-                    attributes: {
-                        position: { array: positions, itemSize: 3 },
-                        normal: normals ? { array: normals, itemSize: 3 } : null,
-                    },
-                    index: indexArray ? { array: indexArray } : null,
-                };
-
-                // Appliquer l'unwrap
-                const result = await unwrapper.unwrap(geometry);
-                
-                if (result && result.uv) {
-                    // Créer le nouvel attribut UV
-                    const uvAccessor = this.document.createAccessor()
-                        .setType('VEC2')
-                        .setArray(new Float32Array(result.uv));
-                    
-                    // Sauvegarder les anciennes UV en uv2 si existantes
-                    const existingUV = primitive.getAttribute('TEXCOORD_0');
-                    if (existingUV) {
-                        primitive.setAttribute('TEXCOORD_1', existingUV);
+                    if (baseColor || normal || metalRough) {
+                        this.analysis.meshesWithTextures++;
+                        this.analysis.hasTextures = true;
                     }
-                    
-                    // Appliquer les nouvelles UV
-                    primitive.setAttribute('TEXCOORD_0', uvAccessor);
-                    
-                    console.log(`      ✅ UV régénérées pour ${mesh.getName() || 'mesh'}`);
                 }
-            }
-        }
 
-        return true;
-    }
-
-    /**
-     * Fallback: Appliquer une projection UV simple (box mapping)
-     */
-    async applySimpleProjection() {
-        console.log('   📦 Application de la projection box mapping...');
-        
-        for (const mesh of this.meshes) {
-            const primitives = mesh.listPrimitives();
-            
-            for (const primitive of primitives) {
-                const positionAttr = primitive.getAttribute('POSITION');
-                const normalAttr = primitive.getAttribute('NORMAL');
-                
-                if (!positionAttr) continue;
-
+                // Calculer bounding box
                 const positions = positionAttr.getArray();
-                const normals = normalAttr?.getArray();
-                const vertexCount = positionAttr.getCount();
-                
-                // Calculer la bounding box pour normaliser
-                let minX = Infinity, maxX = -Infinity;
-                let minY = Infinity, maxY = -Infinity;
-                let minZ = Infinity, maxZ = -Infinity;
-                
                 for (let i = 0; i < positions.length; i += 3) {
                     minX = Math.min(minX, positions[i]);
                     maxX = Math.max(maxX, positions[i]);
@@ -327,149 +143,248 @@ class UVMapProcessor {
                     minZ = Math.min(minZ, positions[i + 2]);
                     maxZ = Math.max(maxZ, positions[i + 2]);
                 }
-                
-                const sizeX = maxX - minX || 1;
-                const sizeY = maxY - minY || 1;
-                const sizeZ = maxZ - minZ || 1;
-                
-                // Générer les UV avec box mapping
-                const uvs = new Float32Array(vertexCount * 2);
-                
-                for (let i = 0; i < vertexCount; i++) {
-                    const px = positions[i * 3];
-                    const py = positions[i * 3 + 1];
-                    const pz = positions[i * 3 + 2];
-                    
-                    let u, v;
-                    
-                    if (normals) {
-                        // Utiliser la normale pour déterminer la face dominante
-                        const nx = Math.abs(normals[i * 3]);
-                        const ny = Math.abs(normals[i * 3 + 1]);
-                        const nz = Math.abs(normals[i * 3 + 2]);
-                        
-                        if (nx >= ny && nx >= nz) {
-                            // Face X dominante
-                            u = (pz - minZ) / sizeZ;
-                            v = (py - minY) / sizeY;
-                        } else if (ny >= nx && ny >= nz) {
-                            // Face Y dominante
-                            u = (px - minX) / sizeX;
-                            v = (pz - minZ) / sizeZ;
-                        } else {
-                            // Face Z dominante
-                            u = (px - minX) / sizeX;
-                            v = (py - minY) / sizeY;
-                        }
-                    } else {
-                        // Sans normales, projection simple sur XY
-                        u = (px - minX) / sizeX;
-                        v = (py - minY) / sizeY;
-                    }
-                    
-                    uvs[i * 2] = Math.max(0, Math.min(1, u));
-                    uvs[i * 2 + 1] = Math.max(0, Math.min(1, v));
-                }
-                
-                // Sauvegarder les anciennes UV en TEXCOORD_1 (uv2)
-                const existingUV = primitive.getAttribute('TEXCOORD_0');
-                if (existingUV) {
-                    primitive.setAttribute('TEXCOORD_1', existingUV);
-                    console.log(`      📋 Anciennes UV sauvegardées en uv2`);
-                }
-                
-                // Créer et appliquer les nouvelles UV
-                const uvAccessor = this.document.createAccessor()
-                    .setType('VEC2')
-                    .setArray(uvs);
-                
-                primitive.setAttribute('TEXCOORD_0', uvAccessor);
-                
-                console.log(`      ✅ UV projetées pour ${mesh.getName() || 'mesh'} (${vertexCount} vertices)`);
             }
         }
-        
-        return true;
+
+        this.analysis.boundingBox = {
+            min: { x: minX, y: minY, z: minZ },
+            max: { x: maxX, y: maxY, z: maxZ },
+            size: {
+                x: maxX - minX,
+                y: maxY - minY,
+                z: maxZ - minZ,
+            },
+            center: {
+                x: (minX + maxX) / 2,
+                y: (minY + maxY) / 2,
+                z: (minZ + maxZ) / 2,
+            },
+        };
+
+        console.log('\n📊 Résultat de l\'analyse:');
+        console.log(`   Total meshes: ${this.analysis.totalMeshes}`);
+        console.log(`   Meshes avec UV0 (textures): ${this.analysis.meshesWithUV0}`);
+        console.log(`   Meshes avec UV1 (perso): ${this.analysis.meshesWithUV1}`);
+        console.log(`   Meshes avec textures: ${this.analysis.meshesWithTextures}`);
+        console.log(`   Modèle texturé: ${this.analysis.hasTextures ? '✅ OUI' : '❌ NON'}`);
+        console.log(`   Bounding box: ${this.analysis.boundingBox.size.x.toFixed(3)} x ${this.analysis.boundingBox.size.y.toFixed(3)} x ${this.analysis.boundingBox.size.z.toFixed(3)}`);
+
+        return this.analysis;
     }
 
     /**
-     * Créer un second layer UV (uv2) avec projection cylindrique pour personnalisation
+     * Créer les UV de personnalisation (TEXCOORD_1)
      */
-    async createCustomizationUVLayer() {
-        console.log('\n🎨 Création du layer UV2 pour personnalisation...');
+    async createPersonalizationUVs(projection = 'cylindrical') {
+        console.log(`\n🎨 Création des UV de personnalisation (TEXCOORD_1)...`);
+        console.log(`   Projection: ${projection}`);
+        console.log(`   ⚠️  UV originales (TEXCOORD_0) préservées`);
         
+        const bbox = this.analysis.boundingBox;
+        let processedCount = 0;
+        let skippedCount = 0;
+
         for (const mesh of this.meshes) {
+            const meshName = mesh.getName() || 'sans nom';
             const primitives = mesh.listPrimitives();
             
             for (const primitive of primitives) {
                 const positionAttr = primitive.getAttribute('POSITION');
-                
+                const normalAttr = primitive.getAttribute('NORMAL');
+                const existingUV1 = primitive.getAttribute('TEXCOORD_1');
+
                 if (!positionAttr) continue;
 
+                // Vérifier si UV1 existe déjà et si on doit le préserver
+                if (existingUV1 && preserveUV2) {
+                    console.log(`   ⏭️  ${meshName}: UV1 existant préservé`);
+                    skippedCount++;
+                    continue;
+                }
+
                 const positions = positionAttr.getArray();
+                const normals = normalAttr?.getArray();
                 const vertexCount = positionAttr.getCount();
-                
-                // Calculer le centre et les dimensions
-                let centerX = 0, centerY = 0, centerZ = 0;
-                let minY = Infinity, maxY = -Infinity;
-                let maxRadius = 0;
-                
-                for (let i = 0; i < positions.length; i += 3) {
-                    centerX += positions[i];
-                    centerY += positions[i + 1];
-                    centerZ += positions[i + 2];
-                    minY = Math.min(minY, positions[i + 1]);
-                    maxY = Math.max(maxY, positions[i + 1]);
+
+                // Générer les UV selon le type de projection
+                let uvs;
+                switch (projection) {
+                    case 'planar':
+                        uvs = this.generatePlanarProjection(positions, normals, vertexCount, bbox);
+                        break;
+                    case 'box':
+                        uvs = this.generateBoxProjection(positions, normals, vertexCount, bbox);
+                        break;
+                    case 'spherical':
+                        uvs = this.generateSphericalProjection(positions, vertexCount, bbox);
+                        break;
+                    case 'cylindrical':
+                    default:
+                        uvs = this.generateCylindricalProjection(positions, vertexCount, bbox);
+                        break;
                 }
-                
-                centerX /= vertexCount;
-                centerY /= vertexCount;
-                centerZ /= vertexCount;
-                
-                for (let i = 0; i < positions.length; i += 3) {
-                    const dx = positions[i] - centerX;
-                    const dz = positions[i + 2] - centerZ;
-                    maxRadius = Math.max(maxRadius, Math.sqrt(dx * dx + dz * dz));
-                }
-                
-                const height = maxY - minY || 1;
-                
-                // Générer les UV avec projection cylindrique
-                const uvs = new Float32Array(vertexCount * 2);
-                
-                for (let i = 0; i < vertexCount; i++) {
-                    const px = positions[i * 3] - centerX;
-                    const py = positions[i * 3 + 1];
-                    const pz = positions[i * 3 + 2] - centerZ;
-                    
-                    // Angle autour de l'axe Y
-                    let angle = Math.atan2(pz, px);
-                    if (angle < 0) angle += Math.PI * 2;
-                    
-                    const u = angle / (Math.PI * 2);
-                    const v = (py - minY) / height;
-                    
-                    uvs[i * 2] = Math.max(0, Math.min(1, u));
-                    uvs[i * 2 + 1] = Math.max(0, Math.min(1, v));
-                }
-                
-                // Créer l'accesseur pour uv2
-                const uv2Accessor = this.document.createAccessor()
+
+                // Créer l'accesseur UV1
+                const uv1Accessor = this.document.createAccessor()
                     .setType('VEC2')
                     .setArray(uvs);
+
+                primitive.setAttribute('TEXCOORD_1', uv1Accessor);
+                processedCount++;
                 
-                // Vérifier si TEXCOORD_1 existe déjà
-                const existingUV2 = primitive.getAttribute('TEXCOORD_1');
-                if (!existingUV2) {
-                    primitive.setAttribute('TEXCOORD_1', uv2Accessor);
-                    console.log(`      ✅ UV2 cylindrique créé pour ${mesh.getName() || 'mesh'}`);
-                } else {
-                    console.log(`      ℹ️ UV2 déjà présent pour ${mesh.getName() || 'mesh'}`);
-                }
+                console.log(`   ✅ ${meshName}: UV personnalisation créé (${vertexCount} vertices)`);
             }
         }
-        
-        return true;
+
+        console.log(`\n📈 Résumé:`);
+        console.log(`   UV1 créés: ${processedCount}`);
+        console.log(`   UV1 préservés: ${skippedCount}`);
+
+        return { processed: processedCount, skipped: skippedCount };
+    }
+
+    /**
+     * Projection cylindrique (idéale pour t-shirts, mugs)
+     * Wrappe autour de l'axe Y
+     */
+    generateCylindricalProjection(positions, vertexCount, bbox) {
+        const uvs = new Float32Array(vertexCount * 2);
+        const centerX = bbox.center.x;
+        const centerZ = bbox.center.z;
+        const height = bbox.size.y || 1;
+        const minY = bbox.min.y;
+
+        for (let i = 0; i < vertexCount; i++) {
+            const px = positions[i * 3] - centerX;
+            const py = positions[i * 3 + 1];
+            const pz = positions[i * 3 + 2] - centerZ;
+
+            // Angle autour de l'axe Y (0 à 2π)
+            let angle = Math.atan2(pz, px);
+            if (angle < 0) angle += Math.PI * 2;
+
+            // U = angle normalisé (0 à 1)
+            // On décale pour que le "devant" soit au centre (U = 0.5)
+            let u = angle / (Math.PI * 2);
+            u = (u + 0.75) % 1.0; // Décalage pour centrer le devant
+
+            // V = hauteur normalisée (0 à 1)
+            const v = (py - minY) / height;
+
+            uvs[i * 2] = Math.max(0, Math.min(1, u));
+            uvs[i * 2 + 1] = Math.max(0, Math.min(1, v));
+        }
+
+        return uvs;
+    }
+
+    /**
+     * Projection planaire (idéale pour surfaces plates, posters)
+     * Projette sur le plan XY (face avant)
+     */
+    generatePlanarProjection(positions, normals, vertexCount, bbox) {
+        const uvs = new Float32Array(vertexCount * 2);
+        const sizeX = bbox.size.x || 1;
+        const sizeY = bbox.size.y || 1;
+        const minX = bbox.min.x;
+        const minY = bbox.min.y;
+
+        for (let i = 0; i < vertexCount; i++) {
+            const px = positions[i * 3];
+            const py = positions[i * 3 + 1];
+
+            // Projection simple sur XY
+            const u = (px - minX) / sizeX;
+            const v = (py - minY) / sizeY;
+
+            uvs[i * 2] = Math.max(0, Math.min(1, u));
+            uvs[i * 2 + 1] = Math.max(0, Math.min(1, v));
+        }
+
+        return uvs;
+    }
+
+    /**
+     * Projection box (idéale pour objets cubiques)
+     * Projette sur la face la plus appropriée selon la normale
+     */
+    generateBoxProjection(positions, normals, vertexCount, bbox) {
+        const uvs = new Float32Array(vertexCount * 2);
+        const sizeX = bbox.size.x || 1;
+        const sizeY = bbox.size.y || 1;
+        const sizeZ = bbox.size.z || 1;
+        const minX = bbox.min.x;
+        const minY = bbox.min.y;
+        const minZ = bbox.min.z;
+
+        for (let i = 0; i < vertexCount; i++) {
+            const px = positions[i * 3];
+            const py = positions[i * 3 + 1];
+            const pz = positions[i * 3 + 2];
+
+            let u, v;
+
+            if (normals) {
+                const nx = Math.abs(normals[i * 3]);
+                const ny = Math.abs(normals[i * 3 + 1]);
+                const nz = Math.abs(normals[i * 3 + 2]);
+
+                if (nx >= ny && nx >= nz) {
+                    // Face X (gauche/droite)
+                    u = (pz - minZ) / sizeZ;
+                    v = (py - minY) / sizeY;
+                } else if (ny >= nx && ny >= nz) {
+                    // Face Y (haut/bas)
+                    u = (px - minX) / sizeX;
+                    v = (pz - minZ) / sizeZ;
+                } else {
+                    // Face Z (avant/arrière)
+                    u = (px - minX) / sizeX;
+                    v = (py - minY) / sizeY;
+                }
+            } else {
+                // Sans normales, projection sur XY par défaut
+                u = (px - minX) / sizeX;
+                v = (py - minY) / sizeY;
+            }
+
+            uvs[i * 2] = Math.max(0, Math.min(1, u));
+            uvs[i * 2 + 1] = Math.max(0, Math.min(1, v));
+        }
+
+        return uvs;
+    }
+
+    /**
+     * Projection sphérique (idéale pour objets ronds)
+     */
+    generateSphericalProjection(positions, vertexCount, bbox) {
+        const uvs = new Float32Array(vertexCount * 2);
+        const centerX = bbox.center.x;
+        const centerY = bbox.center.y;
+        const centerZ = bbox.center.z;
+
+        for (let i = 0; i < vertexCount; i++) {
+            const px = positions[i * 3] - centerX;
+            const py = positions[i * 3 + 1] - centerY;
+            const pz = positions[i * 3 + 2] - centerZ;
+
+            // Distance au centre
+            const r = Math.sqrt(px * px + py * py + pz * pz) || 1;
+
+            // Coordonnées sphériques
+            const theta = Math.atan2(pz, px); // Angle horizontal
+            const phi = Math.acos(py / r);    // Angle vertical
+
+            // Normaliser en UV
+            let u = (theta + Math.PI) / (2 * Math.PI);
+            const v = phi / Math.PI;
+
+            uvs[i * 2] = Math.max(0, Math.min(1, u));
+            uvs[i * 2 + 1] = Math.max(0, Math.min(1, v));
+        }
+
+        return uvs;
     }
 
     /**
@@ -486,13 +401,16 @@ class UVMapProcessor {
     }
 
     /**
-     * Obtenir le résultat de l'analyse au format JSON
+     * Obtenir le résultat au format JSON
      */
-    getAnalysisResult() {
+    getResult(processed = false, processedCount = 0) {
         return {
             success: true,
-            analysis: this.uvAnalysis,
-            options: XATLAS_OPTIONS,
+            processed: processed,
+            analysis: this.analysis,
+            projection: projectionType,
+            uv1Created: processedCount,
+            uvOriginalPreserved: true,
         };
     }
 }
@@ -502,57 +420,48 @@ class UVMapProcessor {
  */
 async function main() {
     console.log('═══════════════════════════════════════════════════════════════');
-    console.log('  UV Map Processor - Correction automatique des UV fragmentées');
+    console.log('  UV Personnalisation Processor');
+    console.log('  Crée TEXCOORD_1 pour Fabric.js - Préserve TEXCOORD_0');
     console.log('═══════════════════════════════════════════════════════════════');
     
-    const processor = new UVMapProcessor();
+    const processor = new UVPersonalizationProcessor();
     
     try {
         // Charger le fichier
         await processor.init(inputPath);
         
-        // Analyser les UV
-        const analysis = processor.analyzeUVMaps();
+        // Analyser le modèle
+        const analysis = processor.analyze();
         
         // Mode analyse uniquement
         if (analyzeOnly) {
             console.log('\n📤 Résultat (JSON):');
-            console.log(JSON.stringify(processor.getAnalysisResult(), null, 2));
+            console.log(JSON.stringify(processor.getResult(false, 0), null, 2));
             process.exit(0);
         }
         
-        // Traiter si nécessaire
-        if (analysis.needsProcessing) {
-            await processor.processUVMaps();
-            
-            // Créer un layer UV2 pour personnalisation si fragmentation détectée
-            if (analysis.estimatedIslands > MAX_UV_ISLANDS_THRESHOLD) {
-                await processor.createCustomizationUVLayer();
-            }
-            
-            // Sauvegarder
-            const finalOutputPath = outputPath || inputPath.replace('.glb', '-uv-processed.glb');
-            await processor.save(finalOutputPath);
-            
-            console.log('\n✅ Traitement terminé avec succès!');
-        } else {
-            console.log('\n✅ Les UV maps sont correctes, aucun traitement nécessaire.');
-            
-            // Si un fichier de sortie est spécifié, copier le fichier
-            if (outputPath && outputPath !== inputPath) {
-                const content = readFileSync(inputPath);
-                writeFileSync(outputPath, content);
-                console.log(`   Fichier copié vers: ${outputPath}`);
-            }
-        }
+        // Créer les UV de personnalisation
+        const result = await processor.createPersonalizationUVs(projectionType);
         
-        // Afficher le résultat JSON pour parsing par PHP
+        // Sauvegarder
+        const finalOutputPath = outputPath || inputPath.replace('.glb', '-personalization.glb');
+        await processor.save(finalOutputPath);
+        
+        console.log('\n✅ Traitement terminé avec succès!');
+        console.log('   UV originales (TEXCOORD_0): ✅ Préservées');
+        console.log('   UV personnalisation (TEXCOORD_1): ✅ Créées');
+        
+        // Afficher le résultat JSON
         console.log('\n📤 Résultat (JSON):');
         console.log(JSON.stringify({
             success: true,
-            processed: analysis.needsProcessing,
+            processed: result.processed > 0,
             analysis: analysis,
-            output: outputPath || inputPath,
+            projection: projectionType,
+            uv1Created: result.processed,
+            uv1Skipped: result.skipped,
+            uvOriginalPreserved: true,
+            output: finalOutputPath,
         }, null, 2));
         
         process.exit(0);
@@ -571,4 +480,3 @@ async function main() {
 }
 
 main();
-

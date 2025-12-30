@@ -6,13 +6,16 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\File;
 
 /**
- * Service pour traiter et corriger les UV maps des modèles 3D
+ * Service pour créer des UV de personnalisation pour modèles 3D
  * 
- * Ce service utilise un script Node.js avec xatlas-three pour:
- * 1. Analyser les UV maps existantes
- * 2. Détecter la fragmentation excessive
- * 3. Régénérer les UV maps si nécessaire
- * 4. Créer un layer UV2 pour la personnalisation
+ * IMPORTANT: Ce service NE MODIFIE PAS les UV originales (TEXCOORD_0)
+ * Il crée un layer UV séparé (TEXCOORD_1) pour la personnalisation Fabric.js
+ * 
+ * Types de projection disponibles:
+ * - cylindrical: Idéal pour t-shirts, mugs (wrap autour de l'axe Y)
+ * - planar: Idéal pour surfaces plates, posters (projection XY)
+ * - box: Idéal pour objets cubiques (6 faces)
+ * - spherical: Idéal pour objets ronds (ballons, casques)
  */
 class UVProcessingService
 {
@@ -22,12 +25,20 @@ class UVProcessingService
     protected string $scriptPath;
 
     /**
+     * Types de projection disponibles
+     */
+    public const PROJECTION_CYLINDRICAL = 'cylindrical';
+    public const PROJECTION_PLANAR = 'planar';
+    public const PROJECTION_BOX = 'box';
+    public const PROJECTION_SPHERICAL = 'spherical';
+
+    /**
      * Options par défaut pour le traitement
      */
     protected array $defaultOptions = [
-        'resolution' => 1024,
-        'forceUnwrap' => false,
+        'projection' => self::PROJECTION_CYLINDRICAL,
         'analyzeOnly' => false,
+        'preserveUV2' => false,
     ];
 
     public function __construct()
@@ -36,22 +47,26 @@ class UVProcessingService
     }
 
     /**
-     * Traiter les UV maps d'un fichier GLB
+     * Créer les UV de personnalisation pour un fichier GLB
+     * 
+     * Cette méthode:
+     * - Préserve les UV originales (TEXCOORD_0)
+     * - Crée un nouveau layer UV (TEXCOORD_1) pour Fabric.js
      * 
      * @param string $inputPath Chemin du fichier GLB source
      * @param string|null $outputPath Chemin de sortie (optionnel, par défaut = inputPath)
      * @param array $options Options de traitement
-     * @return array Résultat du traitement avec analyse et statut
+     * @return array Résultat du traitement
      */
     public function process(string $inputPath, ?string $outputPath = null, array $options = []): array
     {
         $options = array_merge($this->defaultOptions, $options);
         $outputPath = $outputPath ?? $inputPath;
 
-        Log::info('UVProcessingService - Début du traitement', [
+        Log::info('UVProcessingService - Création UV personnalisation', [
             'input' => $inputPath,
             'output' => $outputPath,
-            'options' => $options,
+            'projection' => $options['projection'],
         ]);
 
         // Vérifier que le fichier d'entrée existe
@@ -76,7 +91,7 @@ class UVProcessingService
         $nodePath = $this->getNodePath();
         $command = $this->buildCommand($nodePath, $inputPath, $outputPath, $options);
 
-        Log::info('UVProcessingService - Exécution de la commande', ['command' => $command]);
+        Log::info('UVProcessingService - Exécution', ['command' => $command]);
 
         // Exécuter le script
         $output = [];
@@ -94,7 +109,7 @@ class UVProcessingService
         $result = $this->parseResult($outputString);
 
         if ($returnCode !== 0 || !$result['success']) {
-            Log::error('UVProcessingService - Échec du traitement', [
+            Log::error('UVProcessingService - Échec', [
                 'return_code' => $returnCode,
                 'error' => $result['error'] ?? 'Erreur inconnue',
                 'output' => $outputString,
@@ -106,16 +121,17 @@ class UVProcessingService
             ];
         }
 
-        Log::info('UVProcessingService - Traitement terminé avec succès', [
-            'processed' => $result['processed'] ?? false,
-            'analysis' => $result['analysis'] ?? null,
+        Log::info('UVProcessingService - Succès', [
+            'uv1_created' => $result['uv1Created'] ?? 0,
+            'projection' => $result['projection'] ?? $options['projection'],
+            'uv_original_preserved' => $result['uvOriginalPreserved'] ?? true,
         ]);
 
         return $result;
     }
 
     /**
-     * Analyser les UV maps sans les modifier
+     * Analyser les UV d'un modèle sans les modifier
      * 
      * @param string $inputPath Chemin du fichier GLB
      * @return array Résultat de l'analyse
@@ -126,26 +142,58 @@ class UVProcessingService
     }
 
     /**
-     * Forcer le re-unwrap des UV maps
-     * 
-     * @param string $inputPath Chemin du fichier GLB source
-     * @param string|null $outputPath Chemin de sortie
-     * @return array Résultat du traitement
+     * Créer les UV de personnalisation avec projection cylindrique
+     * Idéal pour: t-shirts, mugs, bouteilles
      */
-    public function forceUnwrap(string $inputPath, ?string $outputPath = null): array
+    public function createCylindricalUV(string $inputPath, ?string $outputPath = null): array
     {
-        return $this->process($inputPath, $outputPath, ['forceUnwrap' => true]);
+        return $this->process($inputPath, $outputPath, [
+            'projection' => self::PROJECTION_CYLINDRICAL,
+        ]);
     }
 
     /**
-     * Traiter un fichier GLB de manière asynchrone dans un répertoire temporaire
-     * Retourne le chemin du fichier traité
+     * Créer les UV de personnalisation avec projection planaire
+     * Idéal pour: posters, écrans, surfaces plates
+     */
+    public function createPlanarUV(string $inputPath, ?string $outputPath = null): array
+    {
+        return $this->process($inputPath, $outputPath, [
+            'projection' => self::PROJECTION_PLANAR,
+        ]);
+    }
+
+    /**
+     * Créer les UV de personnalisation avec projection box
+     * Idéal pour: boîtes, cubes, objets angulaires
+     */
+    public function createBoxUV(string $inputPath, ?string $outputPath = null): array
+    {
+        return $this->process($inputPath, $outputPath, [
+            'projection' => self::PROJECTION_BOX,
+        ]);
+    }
+
+    /**
+     * Créer les UV de personnalisation avec projection sphérique
+     * Idéal pour: ballons, casques, objets ronds
+     */
+    public function createSphericalUV(string $inputPath, ?string $outputPath = null): array
+    {
+        return $this->process($inputPath, $outputPath, [
+            'projection' => self::PROJECTION_SPHERICAL,
+        ]);
+    }
+
+    /**
+     * Traiter un fichier GLB dans un répertoire temporaire
      * 
      * @param string $inputPath Chemin du fichier source
      * @param string $tempDir Répertoire temporaire
+     * @param string $projection Type de projection
      * @return array Résultat avec le chemin du fichier traité
      */
-    public function processToTemp(string $inputPath, string $tempDir): array
+    public function processToTemp(string $inputPath, string $tempDir, string $projection = self::PROJECTION_CYLINDRICAL): array
     {
         // Créer le répertoire temporaire si nécessaire
         if (!is_dir($tempDir)) {
@@ -153,10 +201,12 @@ class UVProcessingService
         }
 
         // Générer un nom de fichier de sortie
-        $outputPath = $tempDir . '/model-uv-processed.glb';
+        $outputPath = $tempDir . '/model-with-uv-perso.glb';
 
         // Traiter le fichier
-        $result = $this->process($inputPath, $outputPath);
+        $result = $this->process($inputPath, $outputPath, [
+            'projection' => $projection,
+        ]);
 
         if ($result['success']) {
             $result['output_path'] = $outputPath;
@@ -187,7 +237,6 @@ class UVProcessingService
                 }
             }
             
-            // Dernier recours
             return 'node';
         }
 
@@ -210,12 +259,12 @@ class UVProcessingService
             $args[] = '--analyze-only';
         }
 
-        if ($options['forceUnwrap'] ?? false) {
-            $args[] = '--force-unwrap';
+        if ($options['preserveUV2'] ?? false) {
+            $args[] = '--preserve-uv2';
         }
 
-        if (isset($options['resolution'])) {
-            $args[] = '--resolution=' . (int) $options['resolution'];
+        if (isset($options['projection'])) {
+            $args[] = '--projection=' . escapeshellarg($options['projection']);
         }
 
         return implode(' ', $args);
@@ -256,7 +305,7 @@ class UVProcessingService
     }
 
     /**
-     * Vérifier si le traitement UV est disponible (Node.js + script présent)
+     * Vérifier si le traitement UV est disponible
      */
     public function isAvailable(): bool
     {
@@ -272,11 +321,24 @@ class UVProcessingService
 
         // Vérifier que le script existe
         if (!file_exists($this->scriptPath)) {
-            Log::warning('UVProcessingService - Script de traitement UV non trouvé');
+            Log::warning('UVProcessingService - Script non trouvé');
             return false;
         }
 
         return true;
+    }
+
+    /**
+     * Obtenir les types de projection disponibles
+     */
+    public static function getProjectionTypes(): array
+    {
+        return [
+            self::PROJECTION_CYLINDRICAL => 'Cylindrique (t-shirts, mugs)',
+            self::PROJECTION_PLANAR => 'Planaire (surfaces plates)',
+            self::PROJECTION_BOX => 'Box (objets cubiques)',
+            self::PROJECTION_SPHERICAL => 'Sphérique (objets ronds)',
+        ];
     }
 
     /**
@@ -293,7 +355,9 @@ class UVProcessingService
             'node_version' => $nodeVersion,
             'script_path' => $this->scriptPath,
             'script_exists' => file_exists($this->scriptPath),
+            'projection_types' => self::getProjectionTypes(),
+            'preserves_original_uv' => true,
+            'creates_uv1_for_personalization' => true,
         ];
     }
 }
-
