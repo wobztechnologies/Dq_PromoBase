@@ -167,17 +167,33 @@ class ProductImportHandler implements ImportHandlerInterface
                 }
                 // Si seulement color_name est fourni (compatibilité avec anciens imports)
                 if (!$color && $colorName) {
-                    // Chercher d'abord une couleur fabricant avec ce nom pour CE fabricant (insensible à la casse)
-                    $color = PrimaryColor::whereRaw('LOWER(name) = ?', [mb_strtolower($colorName)])
+                    // Pour un produit simple (mode simple ou pas de variante de taille/couleur attendue),
+                    // chercher D'ABORD comme couleur principale
+                    $primaryColorMatch = PrimaryColor::whereRaw('LOWER(name) = ?', [mb_strtolower($colorName)])
+                        ->whereNull('parent_id')
+                        ->whereNull('manufacturer_id')
+                        ->first();
+                    
+                    // Chercher aussi une couleur fabricant avec ce nom pour CE fabricant (insensible à la casse)
+                    $manufacturerColorMatch = PrimaryColor::whereRaw('LOWER(name) = ?', [mb_strtolower($colorName)])
                         ->where('manufacturer_id', $manufacturer->id)
                         ->first();
                     
-                    // Si pas trouvé comme couleur fabricant, chercher comme couleur principale (insensible à la casse)
-                    if (!$color) {
-                        $color = PrimaryColor::whereRaw('LOWER(name) = ?', [mb_strtolower($colorName)])
-                            ->whereNull('parent_id')
-                            ->whereNull('manufacturer_id')
-                            ->first();
+                    // Décider quelle couleur utiliser :
+                    // - Si mode "simple" ou pas de tailles, privilégier la couleur principale
+                    // - Sinon, privilégier la couleur fabricant pour créer des variantes
+                    $isSimpleMode = $import->mode === 'simple';
+                    $hasNoSizes = empty($sizeName);
+                    
+                    if (($isSimpleMode || $hasNoSizes) && $primaryColorMatch) {
+                        // Mode simple : utiliser la couleur principale
+                        $color = $primaryColorMatch;
+                    } elseif ($manufacturerColorMatch) {
+                        // Mode full avec couleur fabricant trouvée
+                        $color = $manufacturerColorMatch;
+                    } elseif ($primaryColorMatch) {
+                        // Fallback sur la couleur principale
+                        $color = $primaryColorMatch;
                     }
                     
                     if (!$color) {

@@ -319,14 +319,15 @@ class CsvImportResource extends Resource
                         'failed' => 'Échoué',
                     ]),
             ])
-            ->actions([
+            ->headerActions([
                 Tables\Actions\Action::make('import_wizard')
                     ->label('Nouvel import')
                     ->icon('heroicon-o-arrow-up-tray')
                     ->color('primary')
                     ->url(fn () => CsvImportResource::getUrl('wizard'))
                     ->button(),
-                
+            ])
+            ->actions([
                 Tables\Actions\Action::make('validate')
                     ->label('Valider')
                     ->icon('heroicon-o-check-circle')
@@ -423,6 +424,33 @@ class CsvImportResource extends Resource
                         \Filament\Notifications\Notification::make()
                             ->title('Import lancé')
                             ->body('L\'import est en cours de traitement en arrière-plan.')
+                            ->success()
+                            ->send();
+                    }),
+                
+                Tables\Actions\Action::make('resume')
+                    ->label('Reprendre')
+                    ->icon('heroicon-o-arrow-path')
+                    ->color('warning')
+                    ->requiresConfirmation()
+                    ->modalHeading('Reprendre l\'import interrompu')
+                    ->modalDescription(fn (CsvImport $record) => 
+                        "Cet import s'est arrêté à la ligne {$record->processed_rows} sur {$record->total_rows}. " .
+                        "Voulez-vous reprendre à partir de la ligne " . ($record->processed_rows + 1) . " ?"
+                    )
+                    ->modalSubmitActionLabel('Reprendre l\'import')
+                    ->visible(fn (CsvImport $record) => 
+                        in_array($record->status, ['processing', 'failed']) && 
+                        $record->processed_rows < $record->total_rows &&
+                        $record->processed_rows > 0
+                    )
+                    ->action(function (CsvImport $record) {
+                        // Dispatcher le job de reprise
+                        \App\Jobs\ResumeCsvImport::dispatch($record, $record->processed_rows + 1);
+                        
+                        \Filament\Notifications\Notification::make()
+                            ->title('Reprise lancée')
+                            ->body("L'import reprend à partir de la ligne " . ($record->processed_rows + 1) . " sur {$record->total_rows}.")
                             ->success()
                             ->send();
                     }),
