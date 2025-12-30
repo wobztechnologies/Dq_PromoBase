@@ -27,16 +27,24 @@ const outputPath = args.find((arg, i) => !arg.startsWith('--') && i > args.index
 const analyzeOnly = args.includes('--analyze-only');
 const preserveUV2 = args.includes('--preserve-uv2');
 const projectionArg = args.find(arg => arg.startsWith('--projection='));
-const projectionType = projectionArg ? projectionArg.split('=')[1] : 'cylindrical';
+const autoDetect = !projectionArg || args.includes('--auto-detect');
+let projectionType = projectionArg ? projectionArg.split('=')[1] : 'auto';
 
 if (!inputPath) {
     console.error('Usage: node scripts/process-uv-maps.js <input-file> [output-file] [options]');
     console.error('');
     console.error('Options:');
     console.error('  --analyze-only         Analyser les UV sans modifier le fichier');
-    console.error('  --projection=TYPE      Type de projection pour UV personnalisation');
-    console.error('                         Types: cylindrical (défaut), planar, box, spherical');
+    console.error('  --projection=TYPE      Forcer un type de projection (désactive auto-détection)');
+    console.error('                         Types: cylindrical, planar, box, spherical');
+    console.error('  --auto-detect          Auto-détecter la projection (DÉFAUT)');
     console.error('  --preserve-uv2         Ne pas écraser UV2 si déjà présent');
+    console.error('');
+    console.error('Auto-détection basée sur la forme:');
+    console.error('  - Hauteur dominante     → cylindrical (vêtements, bouteilles)');
+    console.error('  - Très plat             → planar (posters, écrans)');
+    console.error('  - Proportions cubiques  → box (boîtes, caisses)');
+    console.error('  - Proportions sphériques → spherical (ballons, casques)');
     console.error('');
     console.error('Exemples:');
     console.error('  node scripts/process-uv-maps.js model.glb output.glb');
@@ -161,6 +169,9 @@ class UVPersonalizationProcessor {
             },
         };
 
+        // Détecter la projection optimale
+        this.analysis.detectedProjection = this.detectOptimalProjection();
+
         console.log('\n📊 Résultat de l\'analyse:');
         console.log(`   Total meshes: ${this.analysis.totalMeshes}`);
         console.log(`   Meshes avec UV0 (textures): ${this.analysis.meshesWithUV0}`);
@@ -168,8 +179,122 @@ class UVPersonalizationProcessor {
         console.log(`   Meshes avec textures: ${this.analysis.meshesWithTextures}`);
         console.log(`   Modèle texturé: ${this.analysis.hasTextures ? '✅ OUI' : '❌ NON'}`);
         console.log(`   Bounding box: ${this.analysis.boundingBox.size.x.toFixed(3)} x ${this.analysis.boundingBox.size.y.toFixed(3)} x ${this.analysis.boundingBox.size.z.toFixed(3)}`);
+        console.log(`   🎯 Projection détectée: ${this.analysis.detectedProjection.type} (confiance: ${this.analysis.detectedProjection.confidence}%)`);
+        console.log(`      Raison: ${this.analysis.detectedProjection.reason}`);
 
         return this.analysis;
+    }
+
+    /**
+     * Détecter automatiquement la projection optimale basée sur la forme du modèle
+     * 
+     * Règles de détection:
+     * - Cylindrique: Hauteur dominante (vêtements, bouteilles, mugs)
+     * - Planaire: Très plat (posters, écrans, cartes)
+     * - Box: Proportions cubiques (boîtes, caisses)
+     * - Sphérique: Toutes dimensions proches et compact (ballons, casques)
+     */
+    detectOptimalProjection() {
+        const bbox = this.analysis.boundingBox;
+        const { x: width, y: height, z: depth } = bbox.size;
+        
+        // Éviter division par zéro
+        const w = Math.max(width, 0.001);
+        const h = Math.max(height, 0.001);
+        const d = Math.max(depth, 0.001);
+        
+        // Calculer les ratios
+        const heightToWidth = h / w;
+        const heightToDepth = h / d;
+        const widthToDepth = w / d;
+        const depthToWidth = d / w;
+        const depthToHeight = d / h;
+        
+        // Trouver la dimension dominante
+        const maxDim = Math.max(w, h, d);
+        const minDim = Math.min(w, h, d);
+        const midDim = w + h + d - maxDim - minDim;
+        
+        // Ratio d'aplatissement (plus c'est bas, plus c'est plat)
+        const flatnessRatio = minDim / maxDim;
+        
+        // Ratio de cubicité (plus c'est proche de 1, plus c'est cubique)
+        const cubicityRatio = minDim / maxDim;
+        
+        // Ratio hauteur/base (pour cylindrique)
+        const baseSize = Math.max(w, d);
+        const heightRatio = h / baseSize;
+        
+        let type = 'cylindrical';
+        let confidence = 70;
+        let reason = '';
+        
+        // 1. Détection PLANAIRE : très plat (une dimension << autres)
+        if (flatnessRatio < 0.15) {
+            type = 'planar';
+            confidence = 90;
+            
+            if (d < w && d < h) {
+                reason = `Très plat en profondeur (Z=${d.toFixed(3)} << X=${w.toFixed(3)}, Y=${h.toFixed(3)})`;
+            } else if (w < h && w < d) {
+                reason = `Très plat en largeur (X=${w.toFixed(3)} << Y=${h.toFixed(3)}, Z=${d.toFixed(3)})`;
+            } else {
+                reason = `Très plat en hauteur (Y=${h.toFixed(3)} << X=${w.toFixed(3)}, Z=${d.toFixed(3)})`;
+            }
+        }
+        // 2. Détection SPHÉRIQUE : toutes dimensions proches (ratio > 0.7)
+        else if (cubicityRatio > 0.7 && flatnessRatio > 0.7) {
+            // Vérifier si c'est vraiment sphérique ou cubique
+            // Sphérique = proportions très proches
+            const variance = Math.abs(w - h) + Math.abs(h - d) + Math.abs(w - d);
+            const avgDim = (w + h + d) / 3;
+            const normalizedVariance = variance / (3 * avgDim);
+            
+            if (normalizedVariance < 0.2) {
+                type = 'spherical';
+                confidence = 85;
+                reason = `Proportions sphériques (variance: ${(normalizedVariance * 100).toFixed(1)}%, ratio: ${cubicityRatio.toFixed(2)})`;
+            } else {
+                type = 'box';
+                confidence = 80;
+                reason = `Proportions cubiques (X=${w.toFixed(3)}, Y=${h.toFixed(3)}, Z=${d.toFixed(3)})`;
+            }
+        }
+        // 3. Détection BOX : proportions assez équilibrées mais pas sphériques
+        else if (cubicityRatio > 0.5 && heightRatio < 1.5 && heightRatio > 0.67) {
+            type = 'box';
+            confidence = 75;
+            reason = `Forme cubique/rectangulaire (ratio hauteur/base: ${heightRatio.toFixed(2)})`;
+        }
+        // 4. Détection CYLINDRIQUE : hauteur dominante (défaut pour vêtements)
+        else {
+            type = 'cylindrical';
+            
+            if (heightRatio > 1.5) {
+                confidence = 90;
+                reason = `Hauteur dominante (ratio: ${heightRatio.toFixed(2)}), idéal pour vêtements/bouteilles`;
+            } else if (heightRatio > 1.0) {
+                confidence = 80;
+                reason = `Légèrement allongé verticalement (ratio: ${heightRatio.toFixed(2)})`;
+            } else {
+                confidence = 65;
+                reason = `Forme générale, cylindrique par défaut (ratio: ${heightRatio.toFixed(2)})`;
+            }
+        }
+        
+        return {
+            type,
+            confidence,
+            reason,
+            metrics: {
+                width: w,
+                height: h,
+                depth: d,
+                heightRatio,
+                flatnessRatio,
+                cubicityRatio,
+            },
+        };
     }
 
     /**
@@ -477,6 +602,7 @@ async function main() {
     console.log('═══════════════════════════════════════════════════════════════');
     console.log('  UV Personnalisation Processor');
     console.log('  Crée TEXCOORD_1 pour Fabric.js - Préserve TEXCOORD_0');
+    console.log('  🎯 Auto-détection de projection activée par défaut');
     console.log('═══════════════════════════════════════════════════════════════');
     
     const processor = new UVPersonalizationProcessor();
@@ -495,16 +621,31 @@ async function main() {
             process.exit(0);
         }
         
+        // Déterminer la projection à utiliser
+        let finalProjection = projectionType;
+        
+        if (autoDetect || projectionType === 'auto') {
+            // Utiliser la projection auto-détectée
+            finalProjection = analysis.detectedProjection.type;
+            console.log(`\n🎯 Auto-détection: utilisation de "${finalProjection}" (confiance: ${analysis.detectedProjection.confidence}%)`);
+        } else {
+            console.log(`\n📐 Projection manuelle: "${finalProjection}"`);
+        }
+        
         // Créer les UV de personnalisation
-        const result = await processor.createPersonalizationUVs(projectionType);
+        const result = await processor.createPersonalizationUVs(finalProjection);
         
         // Sauvegarder (avec métadonnées customizationUV)
         const finalOutputPath = outputPath || inputPath.replace('.glb', '-personalization.glb');
-        await processor.save(finalOutputPath, projectionType);
+        await processor.save(finalOutputPath, finalProjection);
         
         console.log('\n✅ Traitement terminé avec succès!');
         console.log('   UV originales (TEXCOORD_0): ✅ Préservées');
         console.log('   UV personnalisation (TEXCOORD_1): ✅ Créées');
+        console.log(`   Projection utilisée: ${finalProjection}`);
+        if (autoDetect || projectionType === 'auto') {
+            console.log(`   (auto-détectée avec ${analysis.detectedProjection.confidence}% de confiance)`);
+        }
         
         // Afficher le résultat JSON
         console.log('\n📤 Résultat (JSON):');
@@ -512,7 +653,9 @@ async function main() {
             success: true,
             processed: result.processed > 0,
             analysis: analysis,
-            projection: projectionType,
+            projection: finalProjection,
+            projectionAutoDetected: autoDetect || projectionType === 'auto',
+            detectedProjection: analysis.detectedProjection,
             uv1Created: result.processed,
             uv1Skipped: result.skipped,
             uvOriginalPreserved: true,

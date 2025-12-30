@@ -27,6 +27,7 @@ class UVProcessingService
     /**
      * Types de projection disponibles
      */
+    public const PROJECTION_AUTO = 'auto';
     public const PROJECTION_CYLINDRICAL = 'cylindrical';
     public const PROJECTION_PLANAR = 'planar';
     public const PROJECTION_BOX = 'box';
@@ -34,9 +35,10 @@ class UVProcessingService
 
     /**
      * Options par défaut pour le traitement
+     * Par défaut: auto-détection basée sur la forme du modèle
      */
     protected array $defaultOptions = [
-        'projection' => self::PROJECTION_CYLINDRICAL,
+        'projection' => self::PROJECTION_AUTO, // Auto-détection par défaut
         'analyzeOnly' => false,
         'preserveUV2' => false,
     ];
@@ -334,6 +336,7 @@ class UVProcessingService
     public static function getProjectionTypes(): array
     {
         return [
+            self::PROJECTION_AUTO => 'Auto-détection (basée sur la forme)',
             self::PROJECTION_CYLINDRICAL => 'Cylindrique (t-shirts, mugs)',
             self::PROJECTION_PLANAR => 'Planaire (surfaces plates)',
             self::PROJECTION_BOX => 'Box (objets cubiques)',
