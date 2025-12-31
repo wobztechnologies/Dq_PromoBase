@@ -128,6 +128,35 @@ class ImagesRelationManager extends RelationManager
         return $table
             ->modifyQueryUsing(fn ($query) => $query->with(['colorVariants.primaryColor.manufacturer']))
             ->recordTitleAttribute('s3_url')
+            ->groups([
+                Tables\Grouping\Group::make('color_variant_group')
+                    ->label('Variante de couleur')
+                    ->getTitleFromRecordUsing(function ($record) {
+                        if ($record->colorVariants->isEmpty()) {
+                            return '📦 Images générales (sans variante)';
+                        }
+                        
+                        $variants = $record->colorVariants->map(function ($variant) {
+                            $color = $variant->primaryColor;
+                            $colorName = $color->name ?? 'N/A';
+                            $manufacturer = $color->manufacturer?->name ?? '';
+                            return $manufacturer 
+                                ? "🎨 {$variant->sku} - {$colorName} ({$manufacturer})"
+                                : "🎨 {$variant->sku} - {$colorName}";
+                        })->join(', ');
+                        
+                        return $variants;
+                    })
+                    ->getKeyFromRecordUsing(function ($record) {
+                        if ($record->colorVariants->isEmpty()) {
+                            return 'no_variant';
+                        }
+                        // Clé basée sur les IDs des variantes triées pour grouper correctement
+                        return $record->colorVariants->pluck('id')->sort()->join('_');
+                    })
+                    ->collapsible(),
+            ])
+            ->defaultGroup('color_variant_group')
             ->columns([
                 Tables\Columns\ImageColumn::make('signed_url')
                     ->label('Image')
@@ -260,6 +289,41 @@ class ImagesRelationManager extends RelationManager
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                Tables\Filters\SelectFilter::make('color_variant')
+                    ->label('Variante de couleur')
+                    ->options(function () {
+                        $productId = $this->getOwnerRecord()->id;
+                        $variants = \App\Models\ProductColorVariant::where('product_id', $productId)
+                            ->with('primaryColor.manufacturer')
+                            ->get();
+                        
+                        $options = ['no_variant' => '📦 Sans variante (images générales)'];
+                        
+                        foreach ($variants as $variant) {
+                            $color = $variant->primaryColor;
+                            $colorName = $color->name ?? 'N/A';
+                            $manufacturer = $color->manufacturer?->name ?? '';
+                            $label = $manufacturer 
+                                ? "🎨 {$variant->sku} - {$colorName} ({$manufacturer})"
+                                : "🎨 {$variant->sku} - {$colorName}";
+                            $options[$variant->id] = $label;
+                        }
+                        
+                        return $options;
+                    })
+                    ->query(function ($query, array $data) {
+                        if (empty($data['value'])) {
+                            return $query;
+                        }
+                        
+                        if ($data['value'] === 'no_variant') {
+                            return $query->whereDoesntHave('colorVariants');
+                        }
+                        
+                        return $query->whereHas('colorVariants', function ($q) use ($data) {
+                            $q->where('product_color_variants.id', $data['value']);
+                        });
+                    }),
                 Tables\Filters\SelectFilter::make('status')
                     ->label('Statut')
                     ->options([
