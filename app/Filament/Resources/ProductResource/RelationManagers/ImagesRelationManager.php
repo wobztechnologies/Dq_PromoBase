@@ -131,7 +131,7 @@ class ImagesRelationManager extends RelationManager
                 $query->with(['colorVariants.primaryColor.manufacturer']);
                 
                 // Sous-requête pour trier par variante (les images sans variante en dernier)
-                $query->leftJoin('product_color_variant_product_image as pivot', 'product_images.id', '=', 'pivot.product_image_id')
+                $query->leftJoin('product_image_color_variant as pivot', 'product_images.id', '=', 'pivot.product_image_id')
                     ->leftJoin('product_color_variants as variants', 'pivot.product_color_variant_id', '=', 'variants.id')
                     ->select('product_images.*')
                     ->orderByRaw('CASE WHEN variants.id IS NULL THEN 1 ELSE 0 END')
