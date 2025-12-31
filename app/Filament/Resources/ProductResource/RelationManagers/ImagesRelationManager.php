@@ -126,41 +126,75 @@ class ImagesRelationManager extends RelationManager
     public function table(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn ($query) => $query->with(['colorVariants.primaryColor.manufacturer']))
+            ->modifyQueryUsing(function ($query) {
+                // Charger les relations nécessaires
+                $query->with(['colorVariants.primaryColor.manufacturer']);
+                
+                // Sous-requête pour trier par variante (les images sans variante en dernier)
+                $query->leftJoin('product_color_variant_product_image as pivot', 'product_images.id', '=', 'pivot.product_image_id')
+                    ->leftJoin('product_color_variants as variants', 'pivot.product_color_variant_id', '=', 'variants.id')
+                    ->select('product_images.*')
+                    ->orderByRaw('CASE WHEN variants.id IS NULL THEN 1 ELSE 0 END')
+                    ->orderBy('variants.sku')
+                    ->groupBy('product_images.id');
+            })
             ->recordTitleAttribute('s3_url')
-            ->groups([
-                Tables\Grouping\Group::make('color_variant_group')
-                    ->label('Variante de couleur')
-                    ->getTitleFromRecordUsing(function ($record) {
-                        if ($record->colorVariants->isEmpty()) {
-                            return '📦 Images générales (sans variante)';
-                        }
-                        
-                        $variants = $record->colorVariants->map(function ($variant) {
-                            $color = $variant->primaryColor;
-                            $colorName = $color->name ?? 'N/A';
-                            $manufacturer = $color->manufacturer?->name ?? '';
-                            return $manufacturer 
-                                ? "🎨 {$variant->sku} - {$colorName} ({$manufacturer})"
-                                : "🎨 {$variant->sku} - {$colorName}";
-                        })->join(', ');
-                        
-                        return $variants;
-                    })
-                    ->getKeyFromRecordUsing(function ($record) {
-                        if ($record->colorVariants->isEmpty()) {
-                            return 'no_variant';
-                        }
-                        // Clé basée sur les IDs des variantes triées pour grouper correctement
-                        return $record->colorVariants->pluck('id')->sort()->join('_');
-                    })
-                    ->collapsible(),
-            ])
-            ->defaultGroup('color_variant_group')
             ->columns([
+                Tables\Columns\TextColumn::make('colorVariants')
+                    ->label('Variante')
+                    ->html()
+                    ->getStateUsing(function ($record) {
+                        if ($record->colorVariants->isEmpty()) {
+                            return '<span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">📦 Générale</span>';
+                        }
+                        return '<div style="display: flex; flex-direction: column; gap: 0.25rem;">' . 
+                            $record->colorVariants->map(function ($variant) {
+                                $color = $variant->primaryColor->hex_code ?? '#6b7280';
+                                $textColor = $this->getContrastColor($color);
+                                $colorName = $variant->primaryColor->name ?? 'N/A';
+                                return '<span style="background-color: ' . $color . '; color: ' . $textColor . '; padding: 0.25rem 0.5rem; border-radius: 0.375rem; font-size: 0.75rem; font-weight: 500; display: inline-block; width: fit-content;">🎨 ' . htmlspecialchars($colorName) . '</span>';
+                            })->join('') . 
+                            '</div>';
+                    })
+                    ->placeholder('📦 Générale')
+                    ->action(
+                        Tables\Actions\Action::make('edit_variants')
+                            ->label('Modifier les variantes')
+                            ->form([
+                                Forms\Components\Select::make('colorVariants')
+                                    ->label('Variantes de couleur associées')
+                                    ->options(function () {
+                                        $productId = $this->getOwnerRecord()->id;
+                                        return \App\Models\ProductColorVariant::where('product_id', $productId)
+                                            ->with('primaryColor.manufacturer')
+                                            ->get()
+                                            ->mapWithKeys(function ($variant) {
+                                                $color = $variant->primaryColor;
+                                                $manufacturer = $color?->manufacturer?->name ?? '';
+                                                $label = $manufacturer ? "{$color->name} ({$manufacturer})" : ($color->name ?? 'N/A');
+                                                $label = $variant->sku . ' - ' . $label;
+                                                return [$variant->id => $label];
+                                            })
+                                            ->toArray();
+                                    })
+                                    ->multiple()
+                                    ->searchable()
+                                    ->preload()
+                                    ->helperText('Sélectionnez une ou plusieurs variantes de couleur pour cette image'),
+                            ])
+                            ->fillForm(fn ($record) => [
+                                'colorVariants' => $record->colorVariants->pluck('id')->toArray(),
+                            ])
+                            ->action(function ($record, array $data) {
+                                $record->colorVariants()->sync($data['colorVariants'] ?? []);
+                            })
+                            ->successNotificationTitle('Variantes mises à jour')
+                            ->modalSubmitActionLabel('Enregistrer')
+                            ->modalCancelActionLabel('Annuler')
+                    ),
                 Tables\Columns\ImageColumn::make('signed_url')
                     ->label('Image')
-                    ->size(100)
+                    ->size(80)
                     ->square()
                     ->getStateUsing(fn ($record) => $record->signed_url)
                     ->action(
@@ -228,60 +262,6 @@ class ImagesRelationManager extends RelationManager
                             }
                         }
                     }),
-                Tables\Columns\TextColumn::make('colorVariants')
-                    ->label('Variantes associées')
-                    ->html()
-                    ->getStateUsing(function ($record) {
-                        if ($record->colorVariants->isEmpty()) {
-                            return null;
-                        }
-                        return '<div style="display: flex; flex-direction: column; gap: 0.25rem;">' . 
-                            $record->colorVariants->map(function ($variant) {
-                                $color = $variant->primaryColor->hex_code ?? '#fbbf24'; // Jaune par défaut
-                                $textColor = $this->getContrastColor($color);
-                                $colorName = $variant->primaryColor->name ?? 'N/A';
-                                $manufacturer = $variant->primaryColor->manufacturer?->name ?? '';
-                                $label = $variant->sku . ' (' . ($manufacturer ? "{$colorName} ({$manufacturer})" : $colorName) . ')';
-                                return '<span style="background-color: ' . $color . '; color: ' . $textColor . '; padding: 0.25rem 0.5rem; border-radius: 0.375rem; font-size: 0.75rem; font-weight: 500; display: inline-block; width: fit-content;">' . htmlspecialchars($label) . '</span>';
-                            })->join('') . 
-                            '</div>';
-                    })
-                    ->placeholder('Aucune variante')
-                    ->action(
-                        Tables\Actions\Action::make('edit_variants')
-                            ->label('Modifier les variantes')
-                            ->form([
-                                Forms\Components\Select::make('colorVariants')
-                                    ->label('Variantes de couleur associées')
-                                    ->options(function () {
-                                        $productId = $this->getOwnerRecord()->id;
-                                        return \App\Models\ProductColorVariant::where('product_id', $productId)
-                                            ->with('primaryColor.manufacturer')
-                                            ->get()
-                                            ->mapWithKeys(function ($variant) {
-                                                $color = $variant->primaryColor;
-                                                $manufacturer = $color?->manufacturer?->name ?? '';
-                                                $label = $manufacturer ? "{$color->name} ({$manufacturer})" : ($color->name ?? 'N/A');
-                                                $label = $variant->sku . ' - ' . $label;
-                                                return [$variant->id => $label];
-                                            })
-                                            ->toArray();
-                                    })
-                                    ->multiple()
-                                    ->searchable()
-                                    ->preload()
-                                    ->helperText('Sélectionnez une ou plusieurs variantes de couleur pour cette image'),
-                            ])
-                            ->fillForm(fn ($record) => [
-                                'colorVariants' => $record->colorVariants->pluck('id')->toArray(),
-                            ])
-                            ->action(function ($record, array $data) {
-                                $record->colorVariants()->sync($data['colorVariants'] ?? []);
-                            })
-                            ->successNotificationTitle('Variantes mises à jour')
-                            ->modalSubmitActionLabel('Enregistrer')
-                            ->modalCancelActionLabel('Annuler')
-                    ),
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Créé le')
                     ->dateTime()
