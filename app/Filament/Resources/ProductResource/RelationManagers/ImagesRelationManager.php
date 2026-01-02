@@ -130,13 +130,27 @@ class ImagesRelationManager extends RelationManager
                 // Charger les relations nécessaires
                 $query->with(['colorVariants.primaryColor.manufacturer']);
                 
-                // Sous-requête pour trier par variante (les images sans variante en dernier)
-                $query->leftJoin('product_image_color_variant as pivot', 'product_images.id', '=', 'pivot.product_image_id')
-                    ->leftJoin('product_color_variants as variants', 'pivot.product_color_variant_id', '=', 'variants.id')
-                    ->select('product_images.*')
-                    ->orderByRaw('CASE WHEN variants.id IS NULL THEN 1 ELSE 0 END')
-                    ->orderBy('variants.sku')
-                    ->groupBy('product_images.id');
+                // Tri par variante: les images avec variante d'abord (triées par SKU), puis les générales
+                // On utilise une sous-requête pour obtenir le premier SKU associé
+                $query->addSelect([
+                    'product_images.*',
+                    \Illuminate\Support\Facades\DB::raw('(
+                        SELECT MIN(pcv.sku) 
+                        FROM product_image_color_variant picv 
+                        JOIN product_color_variants pcv ON picv.product_color_variant_id = pcv.id 
+                        WHERE picv.product_image_id = product_images.id
+                    ) as first_variant_sku')
+                ])
+                ->orderByRaw('CASE WHEN (
+                    SELECT COUNT(*) FROM product_image_color_variant 
+                    WHERE product_image_id = product_images.id
+                ) = 0 THEN 1 ELSE 0 END')
+                ->orderByRaw('(
+                    SELECT MIN(pcv.sku) 
+                    FROM product_image_color_variant picv 
+                    JOIN product_color_variants pcv ON picv.product_color_variant_id = pcv.id 
+                    WHERE picv.product_image_id = product_images.id
+                ) NULLS LAST');
             })
             ->recordTitleAttribute('s3_url')
             ->columns([
