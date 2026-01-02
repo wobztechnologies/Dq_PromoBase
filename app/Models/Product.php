@@ -194,11 +194,14 @@ class Product extends Model
     }
 
     /**
-     * Modèle 3D par défaut du produit
+     * Modèle 3D par défaut du produit (modèle général, non associé à une variante spécifique)
+     * Important: Ne retourne que les modèles qui ne sont PAS liés à une variante de couleur
      */
     public function defaultModel3D(): HasOne
     {
-        return $this->hasOne(ProductModel3D::class)->where('is_default', true);
+        return $this->hasOne(ProductModel3D::class)
+            ->where('is_default', true)
+            ->whereDoesntHave('colorVariants');
     }
 
     public function toSearchableArray(): array
